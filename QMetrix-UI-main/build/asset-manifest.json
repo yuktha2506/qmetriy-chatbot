@@ -1,0 +1,35 @@
+{
+  "files": {
+    "main.css": "/static/css/main.197feb2d.css",
+    "main.js": "/static/js/main.e1fdc993.js",
+    "static/js/45.fa36a857.chunk.js": "/static/js/45.fa36a857.chunk.js",
+    "static/js/345.6a8b0f52.chunk.js": "/static/js/345.6a8b0f52.chunk.js",
+    "static/js/453.f3bb842a.chunk.js": "/static/js/453.f3bb842a.chunk.js",
+    "static/media/fa-solid-900.ttf": "/static/media/fa-solid-900.07ed6d5fa32c1d54af0f.ttf",
+    "static/media/image.png": "/static/media/image.5c97a76e523dd7ea93ce.png",
+    "static/media/bgImg2.png": "/static/media/bgImg2.9efcb5793edb66768d66.png",
+    "static/media/fa-brands-400.ttf": "/static/media/fa-brands-400.0ff70dcbf135d859ebf3.ttf",
+    "static/media/fa-solid-900.woff2": "/static/media/fa-solid-900.93f719f4d62bfa3e748c.woff2",
+    "static/media/bgImg1.png": "/static/media/bgImg1.1cdfd407e4aa07165adb.png",
+    "static/media/bgImg3.png": "/static/media/bgImg3.89439c082fc994b34595.png",
+    "static/media/fa-brands-400.woff2": "/static/media/fa-brands-400.bb8d5a145e22822103fb.woff2",
+    "static/media/fa-regular-400.ttf": "/static/media/fa-regular-400.17a6e1aebccdbaa39e78.ttf",
+    "static/media/bgBase.png": "/static/media/bgBase.f1c81da07f286fa37412.png",
+    "static/media/fa-regular-400.woff2": "/static/media/fa-regular-400.bc3722686635b5f86132.woff2",
+    "static/media/fa-v4compatibility.ttf": "/static/media/fa-v4compatibility.0f6cb412603527bda691.ttf",
+    "static/media/fa-v4compatibility.woff2": "/static/media/fa-v4compatibility.6cfec8414be20e2c3426.woff2",
+    "static/media/PrioritizePlannedWork.svg": "/static/media/PrioritizePlannedWork.40dc3ac8232cd0c515b7425f7485cedf.svg",
+    "static/media/AccuracyScoreIcon.svg": "/static/media/AccuracyScoreIcon.dc321e43a0d741966629af0685d57dc7.svg",
+    "static/media/CommittingGoalIcon.svg": "/static/media/CommittingGoalIcon.8e2fb40b6b65ee482f27f85adf384308.svg",
+    "index.html": "/index.html",
+    "main.197feb2d.css.map": "/static/css/main.197feb2d.css.map",
+    "main.e1fdc993.js.map": "/static/js/main.e1fdc993.js.map",
+    "45.fa36a857.chunk.js.map": "/static/js/45.fa36a857.chunk.js.map",
+    "345.6a8b0f52.chunk.js.map": "/static/js/345.6a8b0f52.chunk.js.map",
+    "453.f3bb842a.chunk.js.map": "/static/js/453.f3bb842a.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.197feb2d.css",
+    "static/js/main.e1fdc993.js"
+  ]
+}
