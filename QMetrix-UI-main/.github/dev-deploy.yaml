@@ -1,0 +1,146 @@
+name: deploy-qmetrix-UI-dev
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches-ignore:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: Dev
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Free disk space
+        run: |
+          rm -rf /home/aravind_p/actions-runner/Qmetrix-ui/_tool
+          rm -rf /home/aravind_p/actions-runner/Qmetrix-ui/_update
+          docker system prune -af || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Set API Base URL for Dev in .env file
+        run: |
+          echo "API_BASE_URL=${{ secrets.API_BASE_URL_DEV }}" >> $GITHUB_ENV
+          echo "REACT_APP_ENV=${{ secrets.REACT_APP_ENV_DEV }}" >> $GITHUB_ENV
+
+      - name: Install Dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Build application
+        run: npm run build
+        env: 
+          CI: false
+
+      - name: Clean old NGINX files
+        run: sudo rm -rf /usr/share/nginx/html/static
+
+      - name: Copy React build to NGINX directory
+        run: sudo /bin/cp -r ./build/* /usr/share/nginx/html/
+
+      - name: Reload NGINX
+        run: sudo /bin/systemctl restart nginx
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          rm -rf ./build
+          rm -rf ./node_modules
+          npm cache clean --force || true
+          rm -rf ~/.npm
+
+  jira-transition-and-comment:
+    needs: build-and-deploy
+    runs-on: Dev
+    if: success()
+
+    steps:
+      - name: Extract Jira ID from branch/PR title
+        id: extract_id
+        uses: geokats7/extract-jira-id-action@v1.0.0
+
+      - name: Jira Login
+        if: ${{ steps.extract_id.outputs.jira_ticket_id != '' }}
+        uses: frieder/gha-jira-login@v1
+        env:
+          JIRA_BASE_URL: ${{ secrets.ATLASSIAN_CLOUD_DOMAIN }}
+          JIRA_USER_EMAIL: ${{ secrets.ATLASSIAN_CLOUD_USER }}
+          JIRA_API_TOKEN: ${{ secrets.ATLASSIAN_CLOUD_APIKEY }}
+
+      - name: Get Jira issue info
+        if: ${{ steps.extract_id.outputs.jira_ticket_id != '' }}
+        uses: frieder/jira-issue-info@v1
+        id: issue
+        with:
+          issue: ${{ steps.extract_id.outputs.jira_ticket_id }}
+
+      - name: Transition issue to QA IN-PROGRESS
+        id: transition
+        if: |
+          steps.extract_id.outputs.jira_ticket_id != '' &&
+          steps.issue.outputs.status == 'QA READY'
+        uses: frieder/jira-issue-transition@v1
+        with:
+          issue: ${{ steps.extract_id.outputs.jira_ticket_id }}
+          transition: QA - Inprogress
+
+      - name: Comment build result in Jira
+        if: steps.transition.outcome == 'success'
+        uses: atlassian/gajira-comment@v3
+        with:
+          issue: ${{ steps.extract_id.outputs.jira_ticket_id }}
+          comment: |
+            BUILD ${{ needs.build-and-deploy.result }} #${{ github.run_number }}
+            [Workflow Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+      - name: Send QA Status Notification via Email
+        if: |
+          steps.extract_id.outputs.jira_ticket_id != '' &&
+          steps.issue.outputs.status == 'QA READY' &&
+          steps.transition.outcome == 'success'
+        uses: JaSiLez/smtp-notifier@v1.1.2
+        with:
+          server_address: ${{ secrets.SES_SERVER_ADDRESS }}
+          server_port: 587
+          secure: false
+          username: ${{ secrets.SES_USERNAME }}
+          password: ${{ secrets.SES_SENDER_PASSWORD }}
+          subject: "Jira Ticket ${{ steps.extract_id.outputs.jira_ticket_id }} Ready for QA Testing"
+          to: qmetrix-auto-servers@trigent.com
+          from: "Auto Notification <qmetrix-auto-servers@trigent.com>"
+          body: |
+            Hello user,
+      
+            The Jira ticket ${{ steps.extract_id.outputs.jira_ticket_id }} has been moved to **QA In Progress** and is now ready for testing.
+            
+            Please begin testing at your earliest convenience.
+           
+            **Details:**
+            - Branch: ${{ github.ref_name }}
+            - Run Link: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Best regards,
+            Auto Notifier
