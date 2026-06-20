@@ -1,0 +1,65 @@
+name: deploy-qmetrix-UI-prod
+
+on:
+  workflow_dispatch:
+  
+jobs:
+  build-and-deploy-ui:
+    if: github.event_name == 'workflow_dispatch'
+     # if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: Stg
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.18.1'
+
+      - name: Notify Google Chat (job started)
+        env:
+           GCHAT_WEBHOOK_URL: ${{ secrets.GCHAT_WEBHOOK_URL }}
+        run: |
+            MSG="Prod UI deployment started\nRepo: ${{ github.repository }}\nRef: ${{ github.ref }}\nActor: ${{ github.actor }}\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            curl -X POST -H 'Content-Type: application/json' -d "{\"text\":\"${MSG}\"}" "$GCHAT_WEBHOOK_URL"
+  
+          
+      - name: Set API Base URL for stg 
+        run: |
+             echo "API_BASE_URL=${{ secrets.API_BASE_URL_STG }}" >> $GITHUB_ENV
+             echo "REACT_APP_ENV=${{ secrets.REACT_APP_ENV_PROD }}" >> $GITHUB_ENV
+
+      - name: Install Dependencies
+        run: npm install
+        
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Build application
+        run: |
+          npm run build
+        env: 
+          CI: false
+
+      - name: Clean old NGINX files
+        run: sudo rm -rf /usr/share/nginx/html/static
+
+      - name: Copy React build to NGINX directory
+        run: |
+          sudo /bin/cp -r ./build/* /usr/share/nginx/html/
+
+      - name: Reload NGINX
+        run: |
+          sudo /bin/systemctl restart nginx
+
+      - name: Notify Google Chat
+        if: always()
+        env:
+          GCHAT_WEBHOOK_URL: ${{ secrets.GCHAT_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI=$([ "$STATUS" = "success" ] && echo "✅" || echo "❌")
+          MSG="Prod UI Deployment ${EMOJI}\nStatus: ${STATUS}\nRepo: ${{ github.repository }}\nActor: ${{ github.actor }}\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -X POST -H 'Content-Type: application/json' -d "{\"text\":\"${MSG}\"}" "$GCHAT_WEBHOOK_URL"
