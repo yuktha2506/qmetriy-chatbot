@@ -1,0 +1,168 @@
+name: VAPT-security-scan-qmetrix-UI-dev
+
+on:
+  schedule:
+    - cron: '55 13 * * 5'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: dev
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+        with:
+          ref: tailwind-refactor
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+
+      - name: Set API Base URL for Dev in .env file
+        run: |
+              echo "API_BASE_URL=${{ secrets.API_BASE_URL_DEV }}" >> $GITHUB_ENV
+              echo "REACT_APP_ENV=${{ secrets.REACT_APP_ENV_DEV }}" >> $GITHUB_ENV
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run ESLint
+        run: |
+            npm run lint
+
+      - name: Build application
+        run: |
+          npm run build         
+        env: 
+          CI: false
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Restore Dependency-Check DB from Cache
+        uses: actions/cache/restore@v3
+        with:
+          path: ~/.dependency-check
+          key: ${{ runner.os }}-owasp-db
+     
+      - name: Install OWASP Dependency-Check
+        run: |
+          curl -L -o dependency-check.zip https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip
+          unzip -o dependency-check.zip -d dependency-check
+          chmod +x dependency-check/dependency-check/bin/dependency-check.sh
+
+      - name: Run OWASP Dependency-Check (Optimized)
+        run: |
+           mkdir -p ./owasp-report
+           dependency-check/dependency-check/bin/dependency-check.sh \
+            --disableAssembly \
+            --project "DEV" \
+            --out ./owasp-report \
+            --scan ./ \
+            --format "HTML" \
+            --nvdApiKey "${{ secrets.NVD_API_KEY }}"
+
+      - name: Save Dependency-Check DB to Cache
+        uses: actions/cache/save@v3
+        with:
+          path: ~/.dependency-check
+          key: ${{ runner.os }}-owasp-db
+
+      - name: Compress OWASP Report
+        run: |
+             tar -czvf owasp-report.tar.gz -C ./owasp-report .
+      
+      - name: Install ZAP
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/zap
+          ZAP_URL=$(curl -s https://api.github.com/repos/zaproxy/zaproxy/releases/latest | grep "browser_download_url.*Linux.tar.gz" | cut -d '"' -f 4)
+          curl -L $ZAP_URL -o ZAP_Linux.tar.gz
+          tar -xvzf ZAP_Linux.tar.gz -C $GITHUB_WORKSPACE/zap --strip-components=1
+          chmod +x $GITHUB_WORKSPACE/zap/zap.sh
+
+      - name: Generate ZAP Authentication Config File
+        run: |
+          cat <<EOT > $GITHUB_WORKSPACE/zap/zap-auth-config.yaml
+          context:
+            name: "qmetry-App"
+            includePaths:
+              - "${{ secrets.ZAP_LOGIN_URL }}/*"
+            authentication:
+              method: "formBased"
+              parameters:
+                loginUrl: "${{ secrets.ZAP_LOGIN_URL }}"
+                loginRequestData: "username=${{ secrets.ZAP_USERNAME }}&password=${{ secrets.ZAP_PASSWORD }}"
+            users:
+              - name: "test-user"
+                credentials:
+                  username: "${{ secrets.ZAP_USERNAME }}"
+                  password: "${{ secrets.ZAP_PASSWORD }}"
+          EOT
+          chmod 777 $GITHUB_WORKSPACE/zap/zap-auth-config.yaml
+
+      - name: Run OWASP ZAP Full Scan
+        run: |
+          mkdir -p $GITHUB_WORKSPACE/zap-reports
+          chmod -R 777 $GITHUB_WORKSPACE/zap-reports
+          $GITHUB_WORKSPACE/zap/zap.sh -cmd -quickurl "${{ secrets.ZAP_LOGIN_URL }}" \
+            -quickout "$GITHUB_WORKSPACE/zap-reports/report_html.html" -quickprogress
+
+      - name: Compress OWASP ZAP Reports
+        run: tar -czvf zap-report.tar.gz -C $GITHUB_WORKSPACE/zap-reports .
+
+      - name: Send Security Scan Reports via Email
+        uses: JaSiLez/smtp-notifier@v1.1.2
+        with:
+          server_address: ${{ secrets.SES_SERVER_ADDRESS }}
+          server_port: 587
+          secure: false
+          username: ${{ secrets.SES_USERNAME }}
+          password: ${{ secrets.SES_SENDER_PASSWORD }}
+          subject: "QMetry360 UI OWASP Dependency Check & ZAP Security Scan Reports"
+          to: venkaiah_b@trigent.com, aravind_p@trigent.com
+          from: "Auto Notification <auto-nav-aws-user@trigent.com>"
+          body: "Please find the attached OWASP Dependency Check and ZAP Security Scan reports."
+          attachments: owasp-report.tar.gz, zap-report.tar.gz
+
+      - name: Run SonarQube Scan
+        run: |
+          /opt/sonar-scanner/bin/sonar-scanner \
+            -Dsonar.projectKey=qmetrix-ui \
+            -Dsonar.projectName=qmetrix-ui \
+            -Dsonar.sources=src \
+            -Dsonar.dependencyCheck.htmlReportPath=./owasp-report/dependency-check-report.html \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          echo "SonarQube Analysis URL: [SonarQube Dashboard](http://172.31.10.31:9000/dashboard?id=qmetrix-ui)"        
+
+
+      - name: Copy React build to NGINX directory
+        run: |
+          sudo /bin/cp -r ./build/* /usr/share/nginx/html/
+
+      - name: Reload NGINX
+        run: |
+          sudo /bin/systemctl restart nginx
+          
+      - name: Clean up workspace
+        if: always()            # make sure it always runs, even if something failed above
+        run: |
+
+          echo "🧹 Removing generated reports, archives and build artifacts"
+          rm -rf \
+            owasp-report \
+            zap-reports \
+            dependency-check \
+            dependency-check.zip \
+            zap \
+            ZAP_Linux.tar.gz \
+            owasp-report.tar.gz \
+            zap-report.tar.gz
+
+      - name: Remove _tool directory
+        run: rm -rf Qmetrix-ui/_tool
