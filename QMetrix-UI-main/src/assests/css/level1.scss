@@ -1,0 +1,46 @@
+.metric-score-card {
+    border-bottom: 0.5vh solid transparent; 
+    transition: border-bottom-color 1s, border-bottom-width 0.3s ease;
+
+    &.release-readiness {
+      border-bottom-color: rgba(52, 211, 153);
+    }
+  
+    &.engineering-score {
+      border-bottom-color: rgba(255, 159, 67);
+    }
+  
+    &.release-velocity {
+      border-bottom-color: rgba(255, 76, 81);
+    }
+  
+    &:hover {
+      border-bottom-width: 4px;
+      &.release-readiness {
+        border-bottom-color: #34d399;
+      }
+  
+      &.engineering-score {
+        border-bottom-color: #ff8000;
+      }
+  
+      &.release-velocity {
+        border-bottom-color: #e45656;
+      }
+    }
+  
+    &.selected {
+      border-bottom-width: 3px;
+      &.release-readiness {
+        border-bottom-color: #34d399; 
+      }
+  
+      &.engineering-score {
+        border-bottom-color: #ff8000;
+      }
+  
+      &.release-velocity {
+        border-bottom-color: #e45656;
+      }
+    }
+  }
