@@ -1,0 +1,72 @@
+.data-card {
+    position: relative;
+    border-bottom: 0.5vh solid transparent; 
+    transition: border-bottom-color 1s, border-bottom-width 0.3s ease;
+    
+    &.open-bugs {
+      border-bottom-color: rgba(52, 211, 153);
+    }
+    
+    &.open-task {
+      border-bottom-color: rgba(255, 159, 67);
+    }
+  
+    &.open-story {
+      border-bottom-color: rgba(255, 76, 81);
+    }
+    &.time-to-fix-primary {
+      border-bottom-color: rgba(255, 76, 81);
+    }
+    
+    &.time-to-fix-secondary {
+      border-bottom-color: rgba(255, 159, 67);
+    }
+  
+    &.time-to-fix-tertiary {
+      border-bottom-color: rgba(52, 211, 153);
+    }
+  
+    
+    &:hover {
+      border-bottom-width: 4px;
+      
+      &.open-bugs {
+        border-bottom-color: #34d399;
+      }
+  
+      &.open-task {
+        border-bottom-color: #ff8000;
+      }
+  
+      &.open-story {
+        border-bottom-color: #e45656;
+      }
+      &.time-to-fix-primary {
+        border-bottom-color: #FF4C51;
+      }
+      
+      &.time-to-fix-secondary {
+        border-bottom-color: #FF9F43;
+      }
+    
+      &.time-to-fix-tertiary {
+        border-bottom-color: #28C76F;
+      }
+    }
+  
+    &.selected {
+      border-bottom-width: 4px;
+  
+      &.open-bugs {
+        border-bottom-color: #34d399; 
+      }
+  
+      &.open-task {
+        border-bottom-color: #ff8000;
+      }
+  
+      &.open-story {
+        border-bottom-color: #e45656;
+      }
+    }
+  }
