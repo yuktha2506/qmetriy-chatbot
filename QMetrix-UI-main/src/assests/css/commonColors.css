@@ -1,0 +1,118 @@
+:root {
+  // related to chart
+  //for label color
+  --label-color-dark: #75768C; //for dark
+  --label-color-light: #B2B0B6; //for light
+
+  //for grid color
+  --grid-color-dark: #75768C; //for dark
+  --grid-color-light: #B2B0B6; //for light
+
+  //for border color
+  --border-color-dark: rgba(255, 255, 255, 0.1); //for dark
+  --border-color-light:  #9ea5b1; //for light
+
+  //for datalabels color
+  --datalabels-color-dark: #CFCCE3; //for dark
+  --datalabels-color-light: #423F50; //for light
+
+  //for legend color
+  --legend-color-dark: #9B9CB5; //for dark
+  --legend-color-light: #777480; //for light
+
+  //for bar chart
+  --bar-color-primary: #7367f0;
+  --bar-color-secondary: #28C76F;
+  --bar-color-tertiary: #FF4C51;
+  --bar-color-quaternary: #FF9F43;
+  --bar-color-quinary: #00BAD1;
+  --bar-color-senary: #808390;
+
+  //for stack bar chart
+  --stackBar-color-primary: #7367f0;
+  --stackBar-color-secondary: #AB7EFD;
+  --stackBar-color-tertiary: #7149a3;
+  --stackBar-color-quaternary: #E0CFFE;
+
+  //for line chart
+  --line-color-primary: #7367f0;
+  --line-color-secondary: #FF9F43;
+  --line-color-tertiary: #28C76F;
+  --line-color-quaternary: #FF4C51;
+  --line-color-quinary: #00BAD1;
+  --line-color-senary: #808390;
+
+  //for area line chart
+  --areaLine-color-primary: #AB7EFD;
+  --areaLine-color-secondary: #B992FE;
+  --areaLine-color-tertiary: #E0CFFE;
+
+  //for single color doughnut chart
+  --doughnut-singleColor-primary:#28C76F;
+  --doughnut-singleColor-secondary: #29A968;
+  --doughnut-singleColor-tertiary: #2B8B60;
+  --doughnut-singleColor-quaternary: #2C6F58;
+  --doughnut-singleColor-quinary: #1E4D3D;
+  --doughnut-singleColor-senary: #173B2E;
+
+  //for multi color doughnut Chart
+  --doughnut-multiColor-primary: #7367f0;
+  --doughnut-multiColor-secondary: #28C76F;
+  --doughnut-multiColor-tertiary: #FF4C51;
+  --doughnut-multiColor-quaternary: #FF9F43;
+  --doughnut-multiColor-quinary: #00BAD1;
+  --doughnut-multiColor-senary: #808390;
+
+  //for single color pie Chart
+  --pie-singleColor-primary:#28C76F;
+  --pie-singleColor-secondary: #29A968;
+  --pie-singleColor-tertiary: #2B8B60;
+  --pie-singleColor-quaternary: #2C6F58;
+  --pie-SingleColor-quinary: #1E4D3D;
+  --pie-SingleColor-senary: #173B2E;
+
+  //for multi color pie Chart
+  --pie-multiColor-primary: #7367f0;
+  --pie-multiColor-secondary: #28C76F;
+  --pie-multiColor-tertiary: #FF4C51;
+  --pie-multiColor-quaternary: #FF9F43;
+  --pie-multiColor-quinary: #00BAD1;
+  --pie-multiColor-senary: #808390;
+
+  //for polar chart
+  --polar-multiColor-primary: #7367f0;
+  --polar-multiColor-secondary: #28C76F;
+  --polar-multiColor-tertiary: #FF4C51;
+  --polar-multiColor-quaternary: #FF9F43;
+  --polar-multiColor-quinary: #00BAD1;
+  --polar-multiColor-senary: #808390;
+
+  //for radar Chart
+  --radar-multiColor-primary: #7367f04D;
+  --radar-multiColor-secondary: #28C76F4D;
+  --radar-multiColor-tertiary: #FF4C514D;
+  --radar-multiColor-quaternary: #FF9F434D;
+  --radar-multiColor-quinary: #00BAD14D;
+  --radar-multiColor-senary: #8083904D;
+
+  // related to datacard
+  // for title of datacard
+  --title-color-dark: #D0CDE4; //for dark
+  --title-color-light: #434050; //for light
+
+  // for subtitle of datacard
+  --subTitle-color-dark: #9191A8; //for dark
+  --subTitle-color-light: #AAA9AF; //for light
+
+  // for Value of datacard
+  --value-color-dark: #D0CDE4; //for dark
+  --value-color-light: #434050; //for light
+
+  //for trisoled value
+  --trisoled-color-primary: #FF4C51;
+  --trisoled-color-secondary: #FF9F43;
+  --trisoled-color-tertiary: #28C76F;
+
+  //for link
+  --link-color-primary: #7367f0;
+}
