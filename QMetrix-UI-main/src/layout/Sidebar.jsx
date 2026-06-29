@@ -1,0 +1,304 @@
+import { useState, useRef, useEffect } from 'react';
+import PropTypes from 'prop-types';
+import { Home, BarChart3, Users, Plug, Shield, ThumbsUp } from 'lucide-react';
+import { SiJira, SiGitlab } from 'react-icons/si';
+import { Link, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import '../assets/css/tailwind.css';
+import { getBoardLabels } from '../utils/boardUtils';
+import { getPlatformName } from '../constants';
+
+const ICON_WIDTH = 22;
+const ICON_HEIGHT = 29.33;
+
+const JiraIcon = SiJira;
+const GitLabIcon = SiGitlab;
+
+// Custom icon: shield with thumbs-up inside (matches design spec)
+const ShieldThumbsUp = ({ width = ICON_WIDTH, height = ICON_HEIGHT, className = '' }) => (
+  <span className={`relative inline-flex items-center justify-center [&_svg]:shrink-0 ${className}`} style={{ width, height }}>
+    <Shield width={width} height={height} className="absolute inset-0" strokeWidth={1.5} />
+    <ThumbsUp width={width * 0.5} height={height * 0.5} className="relative" strokeWidth={2} />
+  </span>
+);
+
+ShieldThumbsUp.propTypes = {
+  width: PropTypes.number,
+  height: PropTypes.number,
+  className: PropTypes.string,
+};
+
+// Release icon from custom SVG (src/assets/images/Release.svg)
+const RELEASE_ICON_PATH =
+  'M23.0275 20.9482C22.6655 21.1565 22.3038 21.3655 21.9308 21.5801C21.1298 22.0416 20.3303 22.5057 19.5353 22.9775C18.6849 23.4822 17.8299 23.9784 16.9728 24.4717C16.0794 24.986 15.1881 25.5044 14.298 26.0244C14.2139 26.0731 14.1298 26.1217 14.0431 26.1719C13.8532 26.2839 13.6646 26.3995 13.4777 26.5166C13.3781 26.578 13.2785 26.6399 13.1759 26.7031C13.0858 26.76 12.9953 26.8164 12.9025 26.875C12.5982 27.0097 12.4847 27.0028 12.174 26.8945C11.9514 26.785 11.9516 26.7844 11.7189 26.6455C11.631 26.5936 11.5429 26.5418 11.4523 26.4883C11.3104 26.4031 11.31 26.4033 11.1652 26.3164C10.9601 26.195 10.7551 26.0734 10.55 25.9521C10.4441 25.8893 10.3378 25.8264 10.2287 25.7617C9.71924 25.461 9.20631 25.1661 8.69352 24.8711C8.48743 24.7523 8.28144 24.6334 8.07536 24.5146C7.92178 24.4262 7.92143 24.4262 7.76481 24.3359C7.25244 24.0407 6.73988 23.7448 6.2277 23.4492C6.02661 23.3332 5.82528 23.2176 5.62419 23.1016C4.08573 22.214 4.0855 22.2137 2.54704 21.3262V17.4561C3.14303 17.7811 3.66982 18.0728 4.21891 18.4482C4.53022 18.6506 4.8565 18.8211 5.18376 18.9961C5.50911 19.175 5.82799 19.3646 6.14567 19.5566C6.73236 19.9112 7.32078 20.2626 7.91325 20.6074C8.21785 20.7849 8.52027 20.9642 8.81657 21.1553C9.49679 21.5904 9.49701 21.5903 10.2804 21.6719C10.6849 21.5416 10.9372 21.2442 11.2297 20.9482C11.3919 20.7966 11.556 20.6469 11.7199 20.4971C11.9666 20.2714 12.2121 20.0439 12.4572 19.8164C12.7284 19.9389 12.918 20.0664 13.1232 20.2812C13.1751 20.3346 13.227 20.3884 13.2804 20.4434C13.3876 20.5554 13.4956 20.6682 13.6027 20.7803C14.0117 21.2007 14.3739 21.5511 14.9875 21.5859C15.7084 21.5602 16.2547 21.1794 16.8488 20.8096C17.1043 20.6514 17.362 20.4974 17.6203 20.3438L20.0812 18.8672C20.1854 18.8049 20.2893 18.7419 20.3966 18.6777C20.5944 18.5595 20.7926 18.4413 20.9904 18.3232C21.545 17.9912 22.0917 17.6499 22.632 17.2949C22.8389 17.1736 22.8388 17.1729 23.0275 17.1729V20.9482ZM17.0353 1.60059C17.0653 1.60077 17.0955 1.61039 17.1232 1.62891C17.151 1.64759 17.1762 1.67559 17.1974 1.70996L18.8078 4.30469C18.84 4.35651 18.8624 4.42318 18.8713 4.49512C18.8801 4.56686 18.8749 4.64138 18.8576 4.70898C18.8402 4.77667 18.8104 4.83526 18.7726 4.87598C18.7349 4.91642 18.69 4.93847 18.6447 4.93848H17.5607V9.05859C17.7141 9.11996 17.8675 9.18189 18.0256 9.24512C18.2199 9.3502 18.4125 9.45856 18.6037 9.56934C18.6603 9.60202 18.7172 9.63527 18.7756 9.66895C18.8997 9.74067 19.0237 9.81277 19.1476 9.88477C19.4278 10.0475 19.7088 10.209 19.9894 10.3711C20.14 10.4582 20.2903 10.5462 20.4406 10.6338C20.836 10.864 21.2327 11.091 21.633 11.3125C21.7134 11.3575 21.7943 11.4028 21.8771 11.4492C22.0298 11.5346 22.1832 11.6189 22.3371 11.7021C22.8314 11.9808 23.1588 12.2858 23.4992 12.7373C23.5491 12.8008 23.5991 12.8643 23.6506 12.9297C23.8063 13.1303 23.9568 13.334 24.1066 13.5391C24.1588 13.6071 24.212 13.6751 24.2658 13.7451C24.5033 14.0723 24.6253 14.279 24.6711 14.6865C24.4685 15.1669 24.1321 15.3185 23.6886 15.5684C23.5329 15.6607 23.3766 15.7532 23.2209 15.8457C22.8734 16.0509 22.5234 16.2522 22.174 16.4541C21.5294 16.827 20.8915 17.2063 20.2677 17.6133C19.8095 17.9122 19.3437 18.1846 18.8605 18.4414C18.3114 18.7419 17.7808 19.0753 17.2472 19.4023C16.9096 19.6089 16.5711 19.8153 16.2326 20.0205C16.0668 20.1213 15.9015 20.2227 15.7375 20.3262C15.4115 20.5265 15.1987 20.6189 14.8166 20.5703C14.6177 20.422 14.6174 20.4223 14.422 20.2158C14.3499 20.1413 14.2776 20.067 14.2033 19.9902C14.1292 19.9113 14.055 19.8323 13.9787 19.751C13.498 19.2459 13.0421 18.7834 12.4572 18.4004C12.3978 18.4627 12.3377 18.5246 12.2765 18.5889C12.0541 18.8209 11.8312 19.0523 11.6066 19.2822C11.5099 19.3818 11.4132 19.4815 11.3175 19.582C11.1795 19.7269 11.0398 19.87 10.8996 20.0127C10.8161 20.0992 10.7327 20.1863 10.6466 20.2754C10.3248 20.5194 10.1214 20.5639 9.71989 20.5703C9.49435 20.4906 9.49392 20.4912 9.29216 20.3623C9.17863 20.2918 9.17852 20.2917 9.06266 20.2197C8.98367 20.1682 8.90479 20.1165 8.82341 20.0635C8.65409 19.9574 8.48492 19.8512 8.31559 19.7451C8.23296 19.6925 8.14976 19.6402 8.06462 19.5859C7.75849 19.3917 7.44844 19.2048 7.13688 19.0195C7.02286 18.9511 6.90812 18.8829 6.79411 18.8145C6.34307 18.5447 5.89034 18.2777 5.43766 18.0107C4.65184 17.5469 3.86731 17.0806 3.08415 16.6123C2.98685 16.5543 2.88947 16.4963 2.78923 16.4365C1.29166 15.5394 1.29107 15.5399 0.942547 15.1914C0.899978 14.8275 0.959594 14.6378 1.17399 14.3457C1.24745 14.2439 1.24749 14.2435 1.32243 14.1396C1.37431 14.0701 1.42621 14.0004 1.47966 13.9287C1.5297 13.8599 1.57946 13.7906 1.63102 13.7197C1.73074 13.5827 1.83152 13.4464 1.93278 13.3105C2.02311 13.1864 2.11033 13.0597 2.19352 12.9307C2.47731 12.4946 2.77077 12.2803 3.23161 12.0469C3.36801 11.974 3.50456 11.9014 3.64079 11.8281C3.71035 11.7912 3.78006 11.7538 3.85173 11.7158C4.17327 11.5421 4.48703 11.355 4.80095 11.168C5.46331 10.7764 6.12738 10.3878 6.79313 10.002C6.95653 9.90717 7.12016 9.81191 7.28337 9.7168C7.38422 9.65844 7.48513 9.60017 7.58903 9.54004C7.67915 9.48772 7.76962 9.43574 7.86247 9.38184C8.11568 9.24551 8.11567 9.2452 8.58708 9.05664V4.93848H7.49626C7.45091 4.93848 7.40608 4.91647 7.36833 4.87598C7.33054 4.83526 7.30077 4.77668 7.28337 4.70898C7.26604 4.64136 7.26183 4.56689 7.27067 4.49512C7.27958 4.42319 7.30097 4.35651 7.33317 4.30469L8.94352 1.70996C8.96478 1.67561 8.98997 1.64759 9.01774 1.62891C9.04556 1.6103 9.07648 1.60067 9.10661 1.60059C9.13661 1.60067 9.16677 1.61044 9.1945 1.62891C9.22233 1.64755 9.24742 1.67559 9.26872 1.70996L10.8791 4.30469C10.9113 4.35651 10.9336 4.42316 10.9425 4.49512C10.9514 4.56693 10.9462 4.64133 10.9289 4.70898C10.9114 4.77681 10.8818 4.83525 10.8439 4.87598C10.8061 4.91645 10.7614 4.93861 10.716 4.93848H9.632V6.11914C9.63501 6.72362 9.639 7.32813 9.64079 7.93262C9.64227 8.416 9.64345 8.89944 9.64665 9.38281C9.64972 9.84896 9.65177 10.3151 9.65251 10.7812C9.65303 10.9594 9.65391 11.1383 9.65544 11.3164C9.65748 11.5653 9.65752 11.8146 9.65739 12.0635C9.65841 12.1373 9.66025 12.2111 9.6613 12.2871C9.65939 12.6205 9.65736 12.73 9.60856 12.8369C9.54492 13.0517 9.34794 13.209 9.11247 13.209C8.89692 13.2088 8.71142 13.0777 8.63298 12.8906C8.62005 12.8732 8.60369 12.8548 8.58708 12.832C8.55493 12.566 8.55524 12.5651 8.55973 12.2461C8.56064 12.1323 8.56173 12.0186 8.56266 11.9014C8.56503 11.7823 8.56706 11.6627 8.5695 11.54C8.57078 11.4199 8.57209 11.2995 8.57341 11.1758C8.57675 10.8784 8.58126 10.5805 8.58708 10.2832C6.59144 11.2736 6.59177 11.2743 4.81266 12.5488C4.86638 12.579 4.92041 12.6086 4.97575 12.6396C6.11466 13.2795 7.24875 13.927 8.37614 14.5869C9.10751 15.0149 9.84121 15.44 10.5754 15.8633C10.6781 15.9225 10.781 15.9819 10.8869 16.043C11.0763 16.1521 11.2663 16.2608 11.4562 16.3691C11.6066 16.4565 11.7558 16.5462 11.9025 16.6396C12.22 16.8436 12.22 16.8439 12.5861 16.8672C12.856 16.7891 13.073 16.683 13.3175 16.5449C13.454 16.4683 13.4547 16.4679 13.5939 16.3896C14.0361 16.1357 14.4775 15.8804 14.9172 15.6221C15.735 15.143 16.5546 14.667 17.3761 14.1943C18.1775 13.7323 18.9791 13.269 19.7775 12.8018C19.8661 12.7504 19.9548 12.6994 20.0461 12.6465C20.1268 12.599 20.208 12.5508 20.2912 12.502C20.3619 12.4606 20.4331 12.4195 20.506 12.377C20.6825 12.2749 20.6828 12.2743 20.7629 12.0762C20.696 12.0512 20.6286 12.0267 20.5597 12.001C20.2796 11.8832 20.0277 11.7438 19.7658 11.5898C19.6673 11.5321 19.5685 11.4745 19.467 11.415C19.3652 11.355 19.2632 11.2953 19.1584 11.2334C19.0564 11.1736 18.9538 11.1134 18.8488 11.0518C18.4182 10.799 17.9886 10.5445 17.5607 10.2871V10.7324C17.5647 11.0015 17.5686 11.2709 17.5715 11.54C17.5738 11.6591 17.5758 11.7787 17.5783 11.9014C17.5797 12.0718 17.5798 12.0721 17.5812 12.2461C17.5834 12.404 17.5838 12.4044 17.5861 12.5654C17.5741 12.6646 17.5633 12.7263 17.5519 12.7744C17.5116 13.0208 17.2989 13.2088 17.0412 13.209C16.8369 13.209 16.6612 13.0904 16.5763 12.9189C16.5595 12.8952 16.5398 12.8669 16.5158 12.832C16.4893 12.5689 16.48 12.3265 16.4836 12.0635C16.4835 11.9853 16.4836 11.9067 16.4836 11.8262C16.4838 11.5672 16.4853 11.3077 16.4875 11.0488C16.488 10.8695 16.4891 10.6901 16.4894 10.5107C16.4905 10.0384 16.4931 9.56607 16.4963 9.09375C16.4992 8.6118 16.4997 8.12942 16.5011 7.64746C16.504 6.74455 16.5092 5.84137 16.5148 4.93848H15.425C15.3796 4.93861 15.3349 4.91648 15.297 4.87598C15.2591 4.83525 15.2295 4.7768 15.2121 4.70898C15.1947 4.64131 15.1905 4.56695 15.1994 4.49512C15.2083 4.42317 15.2297 4.3565 15.2619 4.30469L16.8722 1.70996C16.8935 1.67564 16.9187 1.64755 16.9465 1.62891C16.9743 1.61037 17.0052 1.60059 17.0353 1.60059ZM13.0236 12.7373C13.3362 12.7374 13.59 12.9911 13.59 13.3037V14.2471C13.59 14.5597 13.3362 14.8133 13.0236 14.8135C12.7109 14.8135 12.4572 14.5598 12.4572 14.2471V13.3037C12.4572 12.991 12.7109 12.7373 13.0236 12.7373ZM12.9767 0.5625C13.0068 0.562623 13.0369 0.57225 13.0646 0.59082C13.0925 0.609509 13.1175 0.637441 13.1388 0.671875L14.7492 3.2666C14.7814 3.31844 14.8038 3.38506 14.8127 3.45703C14.8215 3.52882 14.8163 3.60327 14.799 3.6709C14.7816 3.73868 14.7519 3.79716 14.714 3.83789C14.6762 3.87841 14.6315 3.90047 14.5861 3.90039H13.5021V11.6523C13.502 11.9389 13.2691 12.1708 12.9826 12.1709C12.696 12.1709 12.4632 11.9389 12.4631 11.6523V3.90039H11.3664C11.3209 3.90052 11.2763 3.87845 11.2384 3.83789C11.2006 3.79717 11.1709 3.73871 11.1535 3.6709C11.1361 3.60323 11.1319 3.52886 11.1408 3.45703C11.1497 3.38504 11.171 3.31845 11.2033 3.2666L12.8136 0.671875C12.8349 0.637468 12.86 0.609495 12.8879 0.59082C12.9158 0.572179 12.9465 0.5625 12.9767 0.5625Z';
+
+const ReleaseIcon = ({ width = ICON_WIDTH, height = ICON_HEIGHT, className = '' }) => (
+  <svg
+    width={width}
+    height={height}
+    viewBox="0 0 26 28"
+    fill="none"
+    className={className}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d={RELEASE_ICON_PATH} fill="currentColor" />
+  </svg>
+);
+
+ReleaseIcon.propTypes = {
+  width: PropTypes.number,
+  height: PropTypes.number,
+  className: PropTypes.string,
+};
+
+const iconMap = {
+  Home,
+  BarChart3,
+  Users,
+  Plug,
+  ShieldThumbsUp,
+  ReleaseIcon,
+};
+
+export default function Sidebar() {
+  const [hoveredMenu, setHoveredMenu] = useState(null);
+  const [selectedMenu, setSelectedMenu] = useState(null);
+  const [flyoutTop, setFlyoutTop] = useState(0);
+  const engMetricsRef = useRef(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { isAzure, isGitLab } = getBoardLabels();
+
+  const menuData = [
+    {
+      title: 'QMetry360',
+      path: '/dashboard',
+      icon: 'Home',
+      submenus: [],
+    },
+    {
+      title: 'Eng Metrics',
+      path: '/jiraDashboard',
+      icon: 'BarChart3',
+      submenus: [
+        { title: getPlatformName(isGitLab, isAzure), path: '/jiraDashboard', icon: JiraIcon },
+        { title: 'Git', path: '/gitDashboard', icon: GitLabIcon },
+      ],
+    },
+    {
+      title: 'Standup',
+      path: '/standUp',
+      icon: 'Users',
+      submenus: [],
+    },
+    {
+      title: 'Tech Quality',
+      path: '/techQuality',
+      icon: 'ShieldThumbsUp',
+      submenus: [],
+    },
+    {
+      title: 'Release',
+      path: '/release',
+      icon: 'ReleaseIcon',
+      submenus: [],
+    },
+    {
+      title: 'Integration',
+      path: '/integration',
+      icon: 'Plug',
+      submenus: [],
+    }
+  ];
+
+  const engMetricsMenu = menuData.find((m) => m.title === 'Eng Metrics');
+  const isEngMetricsSelected = selectedMenu === 'Eng Metrics';
+  const showFlyout = (hoveredMenu === 'Eng Metrics' || isEngMetricsSelected) && engMetricsMenu?.submenus?.length > 0;
+  const flyoutRef = useRef(null);
+
+  useEffect(() => {
+    if (showFlyout && engMetricsRef.current) {
+      const updatePosition = () => {
+        if (engMetricsRef.current) {
+          const rect = engMetricsRef.current.getBoundingClientRect();
+          setFlyoutTop(rect.top);
+        }
+      };
+      updatePosition();
+      window.addEventListener('scroll', updatePosition, true);
+      return () => window.removeEventListener('scroll', updatePosition, true);
+    }
+  }, [showFlyout]);
+
+  const handleMenuClick = (menu) => {
+    if (menu.submenus?.length > 0) {
+      setSelectedMenu((prev) => (prev === menu.title ? null : menu.title));
+    }
+  };
+
+  const handleSubMenuClick = (submenuPath) => {
+    navigate(submenuPath);
+  };
+
+  const sidebarWrapperRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (sidebarWrapperRef.current && !sidebarWrapperRef.current.contains(event.target)) {
+        setSelectedMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div
+      ref={sidebarWrapperRef}
+      className="relative flex shrink-0"
+      onMouseLeave={() => setHoveredMenu(null)}
+    >
+      <div
+        className="flex flex-col h-screen sticky top-0 z-10 w-[100px] bg-[#ffffff] dark:bg-[#182433] border-r border-[#E8E8E8] dark:border-[#25384F] overflow-y-auto"
+        style={{ fontFamily: 'Inter', fontWeight: 400, fontSize: '12px', lineHeight: '100%', letterSpacing: '0%' }}
+      >
+        {/* Navigation items - icon above text layout */}
+        <div className="pt-4 mt-[70px] px-1.5">
+          <div className="flex flex-col gap-2">
+            {menuData.map((menu, index) => {
+              const IconComponent = iconMap[menu.icon];
+              const hasSubmenus = menu.submenus?.length > 0;
+              const isOnSubRoute = menu.submenus?.some((s) => s.path === location.pathname);
+              const isHoveredOrExpanded = !isOnSubRoute && (hoveredMenu === menu.title || selectedMenu === menu.title);
+              const isActive = selectedMenu === menu.title || location.pathname === menu.path || isOnSubRoute;
+              return (
+              <div
+                key={index}
+                ref={menu.title === 'Eng Metrics' ? engMetricsRef : null}
+                onMouseEnter={() => setHoveredMenu(menu.title)}
+              >
+                {hasSubmenus ? (
+                  <div
+                    onClick={() => handleMenuClick(menu)}
+                    className={`group flex flex-col items-center justify-center py-3 px-2 cursor-pointer relative w-full rounded-md ${
+                      isOnSubRoute
+                        ? 'bg-[#24527A] dark:bg-[#326AEB]'
+                        : isHoveredOrExpanded
+                          ? 'bg-[#F0F4F8] dark:bg-[#1F2D40]'
+                          : ''
+                    }`}
+                    aria-expanded={hoveredMenu === menu.title}
+                  >
+                    {IconComponent && (
+                      <IconComponent
+                        width={ICON_WIDTH}
+                        height={ICON_HEIGHT}
+                        className={`mb-2 ${
+                          isOnSubRoute
+                            ? 'text-[#FFFFFF]'
+                            : isHoveredOrExpanded
+                              ? 'text-[#24527A] dark:text-[#78B5FF]'
+                              : 'text-[#24527A] dark:text-[#BCC6D4]'
+                        }`}
+                      />
+                    )}
+                    <span
+                      className={`text-center whitespace-nowrap ${
+                        isOnSubRoute
+                          ? 'text-[#FFFFFF]'
+                          : isHoveredOrExpanded
+                            ? 'text-[#24527A] dark:text-[#78B5FF]'
+                            : 'text-[#24527A] dark:text-[#BCC6D4]'
+                      }`}
+                      style={{ fontFamily: 'Inter', fontWeight: 400, fontSize: '12px', lineHeight: '100%', letterSpacing: '0%' }}
+                    >
+                      {menu.title}
+                    </span>
+                  </div>
+                ) : (
+                  <Link to={menu.path || '#'} onClick={() => setSelectedMenu(null)}>
+                    <div
+                      className={`group flex flex-col items-center justify-center py-3 px-2 cursor-pointer relative w-full rounded-md ${
+                        isActive
+                          ? 'bg-[#24527A] dark:bg-[#2765E4]'
+                          : 'dark:hover:bg-[#1F2D40] hover:bg-[#F0F4F8]'
+                      }`}
+                    >
+                      {IconComponent && (
+                        <IconComponent
+                          width={ICON_WIDTH}
+                          height={ICON_HEIGHT}
+                          className={`mb-2 ${
+                            isActive
+                              ? 'text-white'
+                              : 'text-[#24527A] dark:text-[#BCC6D4] group-hover:text-[#24527A] dark:group-hover:text-[#78B5FF]'
+                          }`}
+                        />
+                      )}
+                      <span
+                        className={`text-center whitespace-nowrap ${
+                          isActive
+                            ? 'text-white'
+                            : 'text-[#24527A] dark:text-[#BCC6D4] group-hover:text-[#24527A] dark:group-hover:text-[#78B5FF]'
+                        }`}
+                        style={{ fontFamily: 'Inter', fontWeight: 400, fontSize: '12px', lineHeight: '100%', letterSpacing: '0%' }}
+                      >
+                        {menu.title}
+                      </span>
+                    </div>
+                  </Link>
+                )}
+              </div>
+            );
+            })}
+          </div>
+        </div>
+      </div>
+      {showFlyout && (
+        <div
+          ref={flyoutRef}
+          className="fixed z-50 w-[90px] pt-0 pb-0 dark:bg-[#1F2D40] bg-[#F0F4F8] dark:border-[#25384F] border border-[#E8E8E8] rounded-md shadow-lg overflow-hidden"
+          style={{ left: 98, top: flyoutTop }}
+          onMouseEnter={() => setHoveredMenu('Eng Metrics')}
+          onMouseLeave={() => setHoveredMenu(null)}
+        >
+          {engMetricsMenu.submenus.map((submenu, subIndex) => {
+              const SubIcon = submenu.icon;
+              const isSubActive = location.pathname === submenu.path;
+              const isFirst = subIndex === 0;
+              const isLast = subIndex === 1;
+              return (
+                <div
+                  key={subIndex}
+                  onClick={() => handleSubMenuClick(submenu.path)}
+                  className={`group flex items-center gap-2 py-2.5 cursor-pointer text-[12px] font-normal leading-[100%] relative px-3 ${
+                    isFirst ? 'pt-3' : ''
+                  } ${isLast ? 'pb-3' : ''} ${
+                    isSubActive
+                      ? 'bg-[#073C6A] dark:bg-[#1A419A] text-white font-medium pl-5 pr-3'
+                      : 'dark:hover:bg-[#26374C] hover:bg-[#E9EEF2]'
+                  }`}
+                >
+                  {isSubActive && (
+                    <div className="absolute bg-white" style={{ left: 4, top: 6, bottom: 6, width: 3, borderRadius: 3 }}></div>
+                  )}
+                  {SubIcon && (
+                    <SubIcon
+                      className={isSubActive ? 'text-[#FFFFFF]' : 'text-[#0EA5E9] dark:text-[#326AEB]'}
+                      style={{ width: 12, height: 11.62, marginTop: 2, marginLeft: 2 }}
+                    />
+                  )}
+                  <span
+                    className={isSubActive ? 'text-[#FFFFFF]' : 'text-[#24527A] dark:text-[#BCC6D4]'}
+                    style={{ fontFamily: 'Inter', fontWeight: 400, fontSize: '12px', lineHeight: '100%', letterSpacing: '0%' }}
+                  >
+                    {submenu.title}
+                  </span>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </div>
+  );
+}
