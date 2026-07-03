@@ -1,0 +1,1762 @@
+import { useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+  // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented imports later.
+  // fetchGetReleaseReadinessTrends,
+  getReleaseDetails,
+  // getReleaseReadinessDetails,
+  getSprintList,
+  // getTaskCount,
+  // getAllStoryPointsCommittedAndCompleted,
+  // fetchStatusCount,
+  getProjectList,
+  // getFetchOpenPullRequests,
+  // fetchGetClosedPRs,
+  // fetchLeadTimeForChanges,
+  // getMergedPRsWithoutReview,
+  // fetchGetTotalPRs,
+  getRepoList,
+  // getPRsSize,
+  // getGitCycleTime,
+  // getApprovalRate,
+  // getBugClassification,
+  // getDefectDensity,
+  // getVelocity,
+  // getDefectRejection,
+  // getActualStoryPoints,
+  // getDefectRemovalEfficiency,
+  // getTimeToFix,
+  // getIterationTime,
+  // getCostOfFixingDefects,
+  // getDoraMetrics,
+  // getDefectLekageAnalysis,
+  // getStoryPointData,
+  // getjiraTableData,
+  // getSprintLength,
+  // getStoryChurnData,
+  // getStoryChurnExcludingBugs,
+  // fetchJiraStatusByDeveloper,
+  // getOpenPRsData,
+  // getMergedPRsWithoutReviewData,
+  // getStandupBurndown,
+  // getDailyBurnup,
+  getAllOrgsListAPI,
+  // getCycleTime,
+  // getSprintCompleteDate,
+  // getAvailableHours,
+  // getUserList,
+  // getBurndownVelocity,
+  // getQAInsightsBugs,
+  // getQAInsightsTests,
+  // getQARefrence,
+  // getBurndownData,
+  // getReleaseBurndownData,
+  getProjectManagementData,
+  getStandupDashboardData,
+  getGitDashboardData,
+  getCXODashboardData,
+  APP_STRINGS,
+} from '../constants';
+import {
+  setStatusCountData,
+  setStoryPointsData,
+  setTaskCountData,
+  setSprintList,
+  setReleasesList,
+  setSelectedProject,
+  setSelectedSprint,
+  setIsProjectOpen,
+  setSelectedRelease,
+  setIsSprintOpen,
+  setVelocityData,
+  setSprint,
+  setRelease,
+  setSelectedTypeValue,
+  setRepoList,
+  setLoading,
+  setLoadingEngMetrics,
+  setSelectedSprintEndDate,
+  setSelectedReleaseDate,
+  setBugClassification,
+  setDefectDensity,
+  setDefectRejection,
+  setTimeToFix,
+  setDefectRemovalEfficiency,
+  setRepositoryProvider,
+  setCostOfFixingDefect,
+  setDefectLeakageAnalysis,
+  setGetStoryPointData,
+  setJiraTableData,
+  setSprintLength,
+  setStoryChurnData,
+  setJiraStatusByDeveloper,
+  setSelectedDeveloperName,
+  setStandupBurndown,
+  setSelectedOrganization,
+  setOrganizationList,
+  setIsOrganizationOpen,
+  setProjectList,
+  setCycleTime,
+  setSprintCompleteDate,
+  setAvailableHours,
+  setUserList,
+  setBurndownVelocity,
+  setQAInsightsBugsData,
+  setQAInsightsTestsData,
+  setQAReferenceData,
+  setBurndownData,
+} from '../store/JiraSlices/jiraSlice';
+import {
+  setClosedPRs,
+  setTotalPRs,
+  setOpenPRs,
+  setMergedWithoutReviewPRs,
+  setPRSize,
+  setGitCycleTime,
+  setApprovalRate,
+  setSelectedRepository,
+  setIterationTime,
+  setLeadTimeChanges,
+  setGetDoraData,
+  setStandupOpenPRsData,
+  setStandupMergedPRsData,
+} from '../store/GitSlices/gitSlices';
+import {
+  addReleaseReadinessTrendsData,
+  addReleaseReadinessData,
+  setActualStoryPoints,
+  setDailyBurnup,
+} from '../store/CXOSlices/cxoSlice';
+
+import { reset as resetGit } from '../store/GitSlices/gitSlices';
+import { reset as resetJira } from '../store/JiraSlices/jiraSlice';
+import { reset as resetCXO } from '../store/CXOSlices/cxoSlice';
+import { addData } from '../store/sonarqube/sonarQubeGitSlice';
+import { reset as resetSonarQubeData } from '../store/sonarqube/sonarQubeGitSlice';
+import store from '../store/store';
+const TECH_QUALITY_PATH = '/techQuality';
+const DASHBOARD_PATH = '/dashboard';
+const STANDUP_PATH = '/standUp';
+const JIRA_PATH = '/jiraDashboard';
+const GIT_PATH = '/gitDashboard';
+const RELEASE_DASHBOARD_PATH = '/release';
+
+// Deduplicate refreshToken-driven refetch across multiple CommonFunction() instances
+// (each page mounts its own hook; React still runs mount effects even when Redux refreshToken is unchanged).
+let lastCompletedJiraRefreshTokenEffectKey = null;
+let jiraRefreshTokenEffectInFlightKey = null;
+
+export const CommonFunction = () => {
+  const dispatch = useDispatch();
+  const location = useLocation();
+  const refreshToken = useSelector((state) => state?.jira?.refreshToken);
+  const refreshInFlightRef = useRef(false);
+  const orgListFetchInFlightRef = useRef(false);
+  let repo = sessionStorage.getItem('repo');
+  const isTechQualityPage = location?.pathname === TECH_QUALITY_PATH;
+  const isReleaseDashboardPage = location?.pathname === RELEASE_DASHBOARD_PATH;
+
+  // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented code later.
+  // const getChurnApi = () => {
+  //   const exclude = sessionStorage.getItem('excludeBugsInChurn') === 'true';
+  //   return exclude ? getStoryChurnExcludingBugs : getStoryChurnData;
+  // };
+
+  const fetchData = async (apiCall, action, params) => {
+    try {
+      const response = await apiCall(params);
+      const isQARefrenceCall =
+        action === setQAReferenceData ||
+        (typeof apiCall === 'function' && apiCall.toString().includes('getQARefrence'));
+      if (isQARefrenceCall) {
+        if (
+          !response ||
+          !response.data ||
+          (typeof response.data === 'object' && Object.keys(response.data).length === 0)
+        ) {
+          dispatch(action(null));
+          return;
+        }
+      }
+     dispatch(action(response.data));
+    } catch (error) {
+      const isQARefrenceCall =
+        action === setQAReferenceData ||
+        (typeof apiCall === 'function' && apiCall.toString().includes('getQARefrence'));
+
+      if (isQARefrenceCall) {
+        dispatch(action(null));
+      }
+    }
+  };
+  const getRepositoryPlatform = (repos = []) => {
+    if (!Array.isArray(repos) || repos.length === 0) return 'unknown';
+
+    const isGitLab = repos.some((repo) => typeof repo === 'string' && repo.includes('gitlab.com'));
+    const isGitHub = repos.some((repo) => typeof repo === 'string' && repo.includes('github.com'));
+
+    if (isGitLab) return 'GitLab';
+    if (isGitHub) return 'GitHub';
+    return 'unknown';
+  };
+
+  useEffect(() => {
+    const companyId = sessionStorage.getItem('companyId');
+    if (!companyId) return;
+    const cachedOrgs = store.getState()?.jira?.organizationList;
+    if (cachedOrgs?.length > 0) return;
+    if (orgListFetchInFlightRef.current) return;
+
+    orgListFetchInFlightRef.current = true;
+    Promise.resolve()
+      .then(async () => {
+        const organizations = await getAllOrgsListAPI();
+        if (Array.isArray(organizations) && organizations.length > 0) {
+          dispatch(setOrganizationList(organizations));
+        }
+      })
+      .catch((error) => {
+        console.error('Error fetching organization list:', error);
+      })
+      .finally(() => {
+        orgListFetchInFlightRef.current = false;
+      });
+  }, [dispatch]);
+
+  // This runs once on mount to restore session selections; intentionally not re-run.
+  useEffect(() => {
+    const hasRefreshed = sessionStorage.getItem('hasRefreshed');
+
+    if (!hasRefreshed) {
+      sessionStorage.setItem('hasRefreshed', 'true');
+
+      const fetchAndSetData = async () => {
+        const storedProjectId = sessionStorage.getItem('projectId');
+        const storedProjectName = sessionStorage.getItem('projectName');
+        const storedSprintId = sessionStorage.getItem('sprintId');
+        const storedSprintName = sessionStorage.getItem('sprintName');
+        const storedReleaseId = sessionStorage.getItem('releaseId');
+        const storedReleaseName = sessionStorage.getItem('releaseName');
+        const storedRepo = sessionStorage.getItem('repo');
+        const storedTypeValue = sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE);
+        const storedTypeValueLabel = sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL);
+        const orgId = sessionStorage.getItem('orgId');
+        const orgName = sessionStorage.getItem('orgName');
+
+        dispatch(
+          setSelectedOrganization({
+            selectedOrgName: orgName,
+            selectedOrgId: orgId,
+          }),
+        );
+
+        const existingState = store.getState()?.jira;
+        const hasProjectListInRedux = existingState?.projectList?.length > 0;
+
+        if (hasProjectListInRedux) {
+          const selectedProject = existingState.projectList.find((p) => p._id === storedProjectId);
+          const repositoryPlatform = getRepositoryPlatform(selectedProject?.repos);
+          dispatch(setRepositoryProvider({ repositoryProvider: repositoryPlatform }));
+        } else {
+          try {
+            const projects = await getProjectList();
+            dispatch(setProjectList(projects.data));
+            const selectedProject = projects.data.find((project) => project._id === storedProjectId);
+            const repositoryPlatform = getRepositoryPlatform(selectedProject?.repos);
+            dispatch(setRepositoryProvider({ repositoryProvider: repositoryPlatform }));
+          } catch (error) {
+            console.error('Error fetching project list:', error);
+          }
+        }
+
+        if (storedProjectId && storedProjectName) {
+          dispatch(
+            setSelectedProject({
+              selectedProjectName: storedProjectName,
+              selectedProjectId: storedProjectId,
+            }),
+          );
+
+          if (!isTechQualityPage) {
+            const hasSprintsInRedux = existingState?.sprintList?.length > 0;
+            const hasReleasesInRedux = existingState?.releasesList?.length > 0;
+            const hasReposInRedux = existingState?.repoList?.length > 0;
+
+            if (!hasSprintsInRedux) {
+              fetchData(getSprintList, setSprintList, {
+                projectId: storedProjectId,
+                boardId: sessionStorage.getItem('boardId'),
+              });
+            }
+            if (!hasReleasesInRedux) {
+              fetchData(getReleaseDetails, setReleasesList, {
+                projectId: storedProjectId,
+                boardId: sessionStorage.getItem('boardId'),
+              });
+            }
+            if (!hasReposInRedux) {
+              fetchData(getRepoList, setRepoList, {
+                companyId: sessionStorage.getItem('companyId'),
+                projectId: storedProjectId,
+              });
+            }
+          }
+        }
+
+        if (!isTechQualityPage) {
+          if (isReleaseDashboardPage) {
+            if (storedReleaseId && storedReleaseName) {
+              dispatch(
+                setSelectedRelease({
+                  selectedReleaseId: storedReleaseId,
+                  selectedReleaseName: storedReleaseName,
+                }),
+              );
+            }
+          } else {
+            if (storedTypeValue === APP_STRINGS.VALUE_SPRINT && storedSprintId && storedSprintName) {
+              dispatch(
+                setSelectedSprint({
+                  selectedSprintId: storedSprintId,
+                  selectedSprintName: storedSprintName,
+                }),
+              );
+              handleSprint(storedSprintId);
+            }
+
+            if (storedTypeValue === APP_STRINGS.VALUE_RELEASE && storedReleaseId && storedReleaseName) {
+              dispatch(
+                setSelectedRelease({
+                  selectedReleaseId: storedReleaseId,
+                  selectedReleaseName: storedReleaseName,
+                }),
+              );
+              handleRelease(storedReleaseId);
+            }
+
+            if (storedRepo) {
+              dispatch(setSelectedRepository(storedRepo));
+            }
+
+            if (storedTypeValue && storedTypeValueLabel) {
+              dispatch(
+                setSelectedTypeValue({
+                  selectedValueLabel: storedTypeValueLabel,
+                  selectedValue: storedTypeValue,
+                }),
+              );
+            }
+          }
+        }
+      };
+
+      fetchAndSetData();
+    }
+
+    const handleUnload = () => {
+      sessionStorage.removeItem('hasRefreshed');
+    };
+
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+//Select back to active sprint when we move from techquality page to any other page
+useEffect(() => {
+  const currPath = location.pathname;
+  const lastPath = sessionStorage.getItem('lastVisitedPath') || '';
+  const projectId = sessionStorage.getItem('projectId');
+  const boardId = sessionStorage.getItem('boardId');
+  const sprintId = sessionStorage.getItem('sprintId');
+
+  const isLeavingTechQuality = lastPath === TECH_QUALITY_PATH && currPath !== TECH_QUALITY_PATH;
+  const releaseId = sessionStorage.getItem('releaseId');
+  const isDashboardNeedingSprint =
+    currPath === DASHBOARD_PATH && projectId && boardId && !sprintId && !releaseId;
+  const isStandupNeedingSprint =
+    currPath === STANDUP_PATH && projectId && boardId && !sprintId && !releaseId;
+
+  if (currPath === RELEASE_DASHBOARD_PATH) {
+    sessionStorage.setItem('lastVisitedPath', currPath);
+    return;
+  }
+
+  // When navigating from Release Dashboard to Standup, fetch standup-specific data
+  const isLeavingReleaseDashboardToStandup = lastPath === RELEASE_DASHBOARD_PATH && currPath === STANDUP_PATH;
+  if (isLeavingReleaseDashboardToStandup && projectId && boardId) {
+    const typeValue = sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE);
+    (async () => {
+      try {
+        if (typeValue === APP_STRINGS.VALUE_RELEASE && releaseId) {
+          await handleReleaseForStandup(releaseId);
+        } else if (sprintId) {
+          await handleSprintForStandup(sprintId);
+        } else if (releaseId) {
+          await handleReleaseForStandup(releaseId);
+        } else {
+          dispatch(setLoading(true));
+          dispatch(setLoadingEngMetrics(true));
+          const sprints = (await getSprintList())?.data || [];
+          dispatch(setSprintList(sprints));
+          const sprintToUse = sprints.find((s) => s.state === 'active' || s.state === 'current')
+            || [...sprints].sort((a, b) => new Date(b.endDate) - new Date(a.endDate))[0];
+          if (sprintToUse) {
+            await handleSprintForStandup(sprintToUse._id);
+          } else {
+            dispatch(setLoading(false));
+            dispatch(setLoadingEngMetrics(false));
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching standup data when leaving release dashboard:', err);
+        dispatch(setLoading(false));
+        dispatch(setLoadingEngMetrics(false));
+      }
+    })();
+    sessionStorage.setItem('lastVisitedPath', currPath);
+    return;
+  }
+
+  // Skip refetch when navigating to Standup - it uses Redux data and avoids unnecessary loading
+  const isNavigatingToStandup = currPath === STANDUP_PATH;
+  const state = store.getState();
+  const jiraData = state.jira || {};
+  const hasMatchingCachedData =
+    isNavigatingToStandup &&
+    jiraData?.selectedProjectId === projectId &&
+    (jiraData?.selectedSprintId === sprintId || jiraData?.selectedReleaseId === sessionStorage.getItem('releaseId')) &&
+    (jiraData?.Sprint || jiraData?.Release);
+
+  const shouldSkipRefetch = isNavigatingToStandup && hasMatchingCachedData && !isStandupNeedingSprint;
+
+  if (
+    (isLeavingTechQuality || isDashboardNeedingSprint || isStandupNeedingSprint) &&
+    projectId &&
+    boardId &&
+    !shouldSkipRefetch
+  ) {
+    dispatch(setLoading(true));
+    dispatch(setLoadingEngMetrics(true));
+    (async () => {
+      try {
+        const sprints = (await getSprintList())?.data || [];
+        dispatch(setSprintList(sprints));
+
+        const storedId = sessionStorage.getItem('sprintId');
+        const sprintToUse = sprints.find((s) => s._id === storedId)
+          || sprints.find((s) => s.state === 'active' || s.state === 'current')
+          || [...sprints].sort((a, b) => new Date(b.endDate) - new Date(a.endDate))[0];
+
+        if (sprintToUse) {
+          if (currPath === STANDUP_PATH) {
+            await handleSprintForStandup(sprintToUse._id);
+          } else {
+            await handleSprint(sprintToUse._id);
+            fetchData(getReleaseDetails, setReleasesList, { projectId, boardId });
+          }
+          const typeLabel =
+            sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL) || APP_STRINGS.VALUE_SPRINT;
+          const typeValue =
+            sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE) || APP_STRINGS.VALUE_SPRINT;
+          dispatch(setSelectedTypeValue({ selectedValueLabel: typeLabel, selectedValue: typeValue }));
+        } else {
+          dispatch(setLoading(false));
+          dispatch(setLoadingEngMetrics(false));
+        }
+      } catch (err) {
+        console.error('Error syncing sprint on leave Tech Quality:', err);
+        dispatch(setLoading(false));
+        dispatch(setLoadingEngMetrics(false));
+      }
+    })();
+  }
+
+  sessionStorage.setItem('lastVisitedPath', currPath);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [location.pathname, dispatch]);
+
+  const handleOrganization = async (value, dispatch) => {
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+      dispatch(setSelectedDeveloperName(''));
+      sessionStorage.removeItem('repo');
+      sessionStorage.removeItem('developer');
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      sessionStorage.removeItem('projectId');
+      store.dispatch(resetGit());
+      store.dispatch(resetJira());
+      store.dispatch(resetCXO());
+      store.dispatch(resetSonarQubeData());
+      const cachedOrgs = store.getState()?.jira?.organizationList;
+      const organizations = cachedOrgs?.length > 0 ? cachedOrgs : await getAllOrgsListAPI();
+
+      const selectedOrg = organizations.find((org) => org._id === value);
+      sessionStorage.setItem('companyId', selectedOrg._id);
+      sessionStorage.setItem('orgId', selectedOrg._id);
+      sessionStorage.setItem('orgName', selectedOrg.companyName);
+
+      dispatch(
+        setSelectedOrganization({
+          selectedOrgName: selectedOrg.companyName,
+          selectedOrgId: selectedOrg._id,
+        }),
+      );
+
+      dispatch(setIsOrganizationOpen(false));
+      dispatch(setLoading(true));
+      await fetchData(getProjectList, setProjectList, { companyId: selectedOrg._id });
+      dispatch(setLoading(false));
+    } catch (error) {
+      console.error('Error fetching data on project change:', error);
+    } finally {
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+  const handleProject = async (value, boardType = null, dispatch) => {
+    if (location.pathname === RELEASE_DASHBOARD_PATH) {
+      await handleProjectForReleaseDashboard(value, boardType, dispatch);
+      return;
+    }
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+      dispatch(setSelectedDeveloperName(''));
+      sessionStorage.removeItem('repo');
+      sessionStorage.removeItem('developer');
+      store.dispatch(resetGit());
+      store.dispatch(resetCXO());
+      store.dispatch(resetSonarQubeData());
+      sessionStorage.removeItem('repo');
+      sessionStorage.removeItem('sprintId');
+      sessionStorage.removeItem('sprintName');
+      sessionStorage.removeItem('releaseId');
+      sessionStorage.removeItem('releaseName');
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE);
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL);
+      sessionStorage.removeItem('developer');
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      let projects = [];
+      const projectList = store.getState()?.jira?.projectList;
+      if (
+        projectList === null ||
+        projectList === undefined ||
+        projectList?.length === 0
+      ) {
+        const projectsData = await getProjectList();
+        projects = projectsData?.data ?? [];
+        dispatch(setProjectList(projects));
+      } else {
+        projects = projectList;
+      }
+      const selectedProject = projects.find((project) => project._id === value);
+      let repositoryPlatform;
+      if (
+        selectedProject?.repos &&
+        Array.isArray(selectedProject?.repos) &&
+        selectedProject?.repos.length > 0
+      ) {
+        const isGitLab = selectedProject?.repos.some(
+          (repo) => typeof repo === 'string' && repo.includes('gitlab.com'),
+        );
+        const isGitHub = selectedProject?.repos.some(
+          (repo) => typeof repo === 'string' && repo.includes('github.com'),
+        );
+
+        if (isGitLab) {
+          repositoryPlatform = 'GitLab';
+        } else if (isGitHub) {
+          repositoryPlatform = 'GitHub';
+        } else {
+          repositoryPlatform = 'unknown';
+        }
+      }
+      dispatch(setRepositoryProvider({ repositoryProvider: repositoryPlatform }));
+      if (!selectedProject) {
+        throw new Error('Selected project not found');
+      }
+      sessionStorage.setItem('projectId', selectedProject._id);
+      sessionStorage.setItem('projectName', selectedProject.name);
+      if (boardType) {
+        const normalized = String(boardType).toLowerCase();
+        sessionStorage.setItem(
+          'boardType',
+          normalized === 'azure board' ||
+            normalized === 'azure-board' ||
+            normalized.includes('azure')
+            ? 'azure-board'
+            : normalized,
+        );
+      }
+
+      dispatch(
+        setSelectedProject({
+          selectedProjectName: selectedProject.name,
+          selectedProjectId: selectedProject._id,
+          sonarQubeCombinedScanReport: selectedProject.combinedScanData,
+        }),
+      );
+      dispatch(setSelectedRelease({}));
+      dispatch(setIsProjectOpen(false));
+
+      const listFetchParams = {
+        companyId: sessionStorage.getItem('companyId'),
+        projectId: selectedProject._id,
+        boardId: sessionStorage.getItem('boardId'),
+      };
+      dispatch(setSprintList([]));
+      dispatch(setReleasesList([]));
+      await Promise.all([
+        fetchData(getSprintList, setSprintList, listFetchParams),
+        fetchData(getReleaseDetails, setReleasesList, listFetchParams),
+        fetchData(getRepoList, setRepoList, {
+          companyId: sessionStorage.getItem('companyId'),
+          projectId: selectedProject._id,
+        }),
+      ]);
+
+      const state = store.getState();
+      const jiraData = state.jira;
+      let latestUnreleasedRelease, currentSprint;
+      const isAzure = String(sessionStorage.getItem('boardType') || boardType || '')
+        .toLowerCase()
+        .includes('azure');
+      const isGitLab = String(sessionStorage.getItem('boardType') || boardType || '')
+        .toLowerCase()
+        .includes('gitlab');
+      
+      // const labelSprint = isAzure ? 'Iteration' : 'Sprint';
+      const labelRelease = isGitLab
+        ? APP_STRINGS.LABEL_MILESTONE
+        : isAzure
+          ? APP_STRINGS.LABEL_EPIC
+          : APP_STRINGS.VALUE_RELEASE;
+      const boardTypeKey = String(boardType || '').toLowerCase();
+      const isKanbanOrGitLabBoard = ['kanban', 'gitlab-board'].includes(boardTypeKey);
+      const sprintListLength = jiraData?.sprintList?.length ?? 0;
+      const releasesListLength = jiraData?.releasesList?.length ?? 0;
+      const hasNoSprints = sprintListLength === 0;
+      const hasReleases = releasesListLength > 0;
+      // getBoardList often returns boardType "simple" for both Scrum (with sprints) and release-only boards.
+      // Default Release when: Kanban/GitLab, OR sprint API returned none but releases exist for this project+board.
+      const useReleaseDefault =
+        isKanbanOrGitLabBoard || (hasNoSprints && hasReleases);
+      if (useReleaseDefault) {
+        latestUnreleasedRelease = jiraData?.releasesList
+          ?.filter((release) => release.status?.toLowerCase() === 'unreleased')
+          .sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate))
+          ?.at(0);
+        // If no unreleased release found, fallback to latest release (any status)
+        if (
+          !latestUnreleasedRelease &&
+          Array.isArray(jiraData?.releasesList) &&
+          jiraData.releasesList.length > 0
+        ) {
+          latestUnreleasedRelease = [...jiraData.releasesList].sort(
+            (a, b) => new Date(b.releaseDate) - new Date(a.releaseDate),
+          )[0];
+        }
+
+        if (latestUnreleasedRelease) {
+          sessionStorage.setItem('releaseId', latestUnreleasedRelease._id);
+          dispatch(
+            setSelectedTypeValue({
+              selectedValueLabel: labelRelease,
+              selectedValue: APP_STRINGS.VALUE_RELEASE,
+            }),
+          );
+          dispatch(
+            setSelectedRelease({
+              selectedReleaseId: latestUnreleasedRelease._id,
+              selectedReleaseName: latestUnreleasedRelease.releaseName,
+            }),
+          );
+        }
+      } else {
+        currentSprint = jiraData?.sprintList?.find((sprint) => sprint.state === 'active' || sprint.state === 'current');
+        if (!currentSprint && Array.isArray(jiraData?.sprintList)) {
+          const sortedSprints = [...jiraData.sprintList].sort(
+            (a, b) => new Date(b.endDate) - new Date(a.endDate),
+          );
+          currentSprint = sortedSprints[0];
+        }
+        if (currentSprint) {
+          sessionStorage.setItem('sprintId', currentSprint._id);
+          dispatch(
+            setSelectedTypeValue({
+              selectedValueLabel: APP_STRINGS.VALUE_SPRINT,
+              selectedValue: APP_STRINGS.VALUE_SPRINT,
+            }),
+          );
+          dispatch(
+            setSelectedSprint({
+              selectedSprintId: currentSprint._id,
+              selectedSprintName: currentSprint.name,
+            }),
+          );
+        }
+      }
+      repo = null;
+      if (Array.isArray(jiraData.repoList) && jiraData.repoList.length > 0) {
+        const defaultRepo = [...jiraData.repoList].sort()[0];
+        dispatch(setSelectedRepository(defaultRepo));
+        sessionStorage.setItem('repo', defaultRepo);
+        repo = defaultRepo;
+      }
+      if (useReleaseDefault) {
+        if (latestUnreleasedRelease) {
+          await handleRelease(latestUnreleasedRelease._id);
+        }
+      } else {
+        if (currentSprint) {
+          await handleSprint(currentSprint._id);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching data on project change:', error);
+      const currentProjectId = sessionStorage.getItem('projectId');
+      const currentProjectName = sessionStorage.getItem('projectName');
+
+      if (!currentProjectId || !currentProjectName) {
+        dispatch(setSelectedProject({ selectedProjectName: '', selectedProjectId: '' }));
+        sessionStorage.removeItem('projectId');
+        sessionStorage.removeItem('projectName');
+      }
+    } finally {
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+  const getSonarQubeReportByRepo = (data, repoName) => {
+    const sonarQubeScanReports =
+      data?.savedCXO?.engineeringScoreObject?.developerScoreObject?.sonarQubeScanReport;
+    const report = sonarQubeScanReports?.find((report) => {
+      const repoLastName = report.repo.split('/').pop();
+      return repoLastName === repoName;
+    });
+    dispatch(addData(report));
+  };
+
+  const updateCapacityValues = async (value, state) => {
+    if (state === APP_STRINGS.VALUE_SPRINT) {
+      const sprints = await getSprintList();
+      const list = sprints.data || [];
+      dispatch(setSprintList(list));
+      const selectedSprint = list.find((sprint) => String(sprint._id) === String(value));
+      if (selectedSprint) dispatch(setSprint(selectedSprint));
+    } else if (state === APP_STRINGS.VALUE_RELEASE) {
+      const releases = await getReleaseDetails();
+      const list = releases.data || [];
+      dispatch(setReleasesList(list));
+      const selectedRelease = list.find((release) => String(release._id) === String(value));
+      if (selectedRelease) dispatch(setRelease(selectedRelease));
+    }
+  };
+
+  const fetchProjectManagementData = async (query, sections = null) => {
+    try {
+      const apiQuery = { ...query };
+      if (sections) { apiQuery.sections = sections; }
+      const response = await getProjectManagementData(apiQuery);
+      const data = response.data;
+      if (!data) { return; }
+
+      const sectionActionMap = {
+        velocity: setVelocityData,
+        taskCount: setTaskCountData,
+        statusCount: setStatusCountData,
+        defectDensity: setDefectDensity,
+        spCommittedVsCompleted: setStoryPointsData,
+        bugClassification: setBugClassification,
+        defectRejection: setDefectRejection,
+        defectRemovalEfficiency: setDefectRemovalEfficiency,
+        timeToFix: setTimeToFix,
+        cycleTime: setCycleTime,
+        burndownData: setBurndownData,
+        actualStoryPoints: setActualStoryPoints,
+        burndownVelocity: setBurndownVelocity,
+        // dailyBurnup and storyChurn are handled by fetchStandupDashboardData to avoid race condition
+        // (PM endpoint uses different logic files than the standup endpoint for these sections)
+        defectLeakage: setDefectLeakageAnalysis,
+        costOfFixing: setCostOfFixingDefect,
+        sprintLength: setSprintLength,
+        qaInsightsBugs: setQAInsightsBugsData,
+        qaInsightsTests: setQAInsightsTestsData,
+        qaReference: setQAReferenceData,
+        storyPointData: setGetStoryPointData,
+        availableHours: setAvailableHours,
+        sprintCompleteDate: setSprintCompleteDate,
+        userList: setUserList,
+      };
+
+      for (const [key, action] of Object.entries(sectionActionMap)) {
+        if (data[key] !== undefined) { dispatch(action(data[key])); }
+      }
+    } catch (error) {
+      console.error('Error fetching project management data:', error);
+    }
+  };
+
+  const fetchStandupDashboardData = async (query, sections = null) => {
+    try {
+      const apiQuery = { ...query };
+      if (sections) { apiQuery.sections = sections; }
+      const response = await getStandupDashboardData(apiQuery);
+      const data = response.data;
+      if (!data) { return; }
+
+      const sectionActionMap = {
+        jiraData: setJiraTableData,
+        jiraStatusByDev: setJiraStatusByDeveloper,
+        standupBurndown: setStandupBurndown,
+        openPRs: setStandupOpenPRsData,
+        mergedWithoutReview: setStandupMergedPRsData,
+        // qaInsightsBugs, qaInsightsTests, qaReference are handled by fetchProjectManagementData to avoid race condition
+        // (PM endpoint uses boardId-scoped logic; standup endpoint uses different logic without boardId)
+        dailyBurnup: setDailyBurnup,
+      };
+
+      for (const [key, action] of Object.entries(sectionActionMap)) {
+        if (data[key] !== undefined) { dispatch(action(data[key])); }
+      }
+
+      const excludeBugs = sessionStorage.getItem('excludeBugsInChurn') === 'true';
+      const churnKey = excludeBugs ? 'storyChurnExcludingBugs' : 'storyChurn';
+      if (data[churnKey] !== undefined) { dispatch(setStoryChurnData(data[churnKey])); }
+    } catch (error) {
+      console.error('Error fetching standup dashboard data:', error);
+    }
+  };
+
+  const fetchGitDashboardData = async (query, sections = null) => {
+    try {
+      const apiQuery = { ...query };
+      if (sections) { apiQuery.sections = sections; }
+      const response = await getGitDashboardData(apiQuery);
+      const data = response.data;
+      if (!data) { return; }
+
+      const sectionActionMap = {
+        closedPRs: setClosedPRs,
+        openPRs: setOpenPRs,
+        totalPRs: setTotalPRs,
+        mergedWithoutReview: setMergedWithoutReviewPRs,
+        prSize: setPRSize,
+        gitCycleTime: setGitCycleTime,
+        approvalRate: setApprovalRate,
+        iterationTime: setIterationTime,
+        leadTime: setLeadTimeChanges,
+        doraMetrics: setGetDoraData,
+      };
+
+      for (const [key, action] of Object.entries(sectionActionMap)) {
+        if (data[key] !== undefined) { dispatch(action(data[key])); }
+      }
+    } catch (error) {
+      console.error('Error fetching git dashboard data:', error);
+    }
+  };
+
+  const fetchCXODashboardData = async (query, sections = null) => {
+    try {
+      const apiQuery = { ...query };
+      if (sections) { apiQuery.sections = sections; }
+      const response = await getCXODashboardData(apiQuery);
+      const data = response.data;
+      if (!data) { return; }
+
+      if (data.cxoData !== undefined) { dispatch(addReleaseReadinessData(data.cxoData)); }
+      if (data.cxoTrends !== undefined) { dispatch(addReleaseReadinessTrendsData(data.cxoTrends)); }
+    } catch (error) {
+      console.error('Error fetching CXO dashboard data:', error);
+    }
+  };
+
+  /** Fetches only APIs required for Standup page - avoids unnecessary Jira/Git/CXO dashboard APIs */
+  const handleSprintForStandup = async (value, forceRefresh = false) => {
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+      dispatch(setQAReferenceData(null));
+      sessionStorage.removeItem('releaseId');
+      sessionStorage.removeItem('releaseName');
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      const cachedSprints = forceRefresh ? [] : store.getState()?.jira?.sprintList;
+      const sprints = Array.isArray(cachedSprints) && cachedSprints.length > 0
+        ? cachedSprints
+        : (await getSprintList())?.data || [];
+      if (Array.isArray(sprints) && sprints.length > 0) {
+        dispatch(setSprintList(sprints));
+      }
+      const selectedSprint = sprints.find((sprint) => sprint._id === value);
+      if (!selectedSprint) {
+        dispatch(setLoading(false));
+        dispatch(setLoadingEngMetrics(false));
+        return;
+      }
+      sessionStorage.setItem('sprintId', selectedSprint._id);
+      sessionStorage.setItem('sprintName', selectedSprint.name);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE, APP_STRINGS.VALUE_SPRINT);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, APP_STRINGS.VALUE_SPRINT);
+      if (selectedSprint?.hours === true) {
+        sessionStorage.setItem('isHoursBasedProject', 'true');
+      } else {
+        sessionStorage.setItem('isHoursBasedProject', 'false');
+        const isAzure = String(sessionStorage.getItem('boardType') || '').toLowerCase().includes('azure');
+        const labelSprint = isAzure ? APP_STRINGS.LABEL_ITERATION : APP_STRINGS.VALUE_SPRINT;
+        sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, labelSprint);
+      }
+      dispatch(setSelectedRelease({ selectedReleaseId: '', selectedReleaseName: '' }));
+      dispatch(setSelectedSprint({ selectedSprintId: selectedSprint._id, selectedSprintName: selectedSprint.name }));
+      dispatch(setSprint(selectedSprint));
+      const matchSprintQuery = {
+        companyId: sessionStorage.getItem('companyId'),
+        projectId: sessionStorage.getItem('projectId'),
+        boardId: sessionStorage.getItem('boardId'),
+        sprintId: sessionStorage.getItem('sprintId'),
+        repo: sessionStorage.getItem('repo'),
+        developer: sessionStorage.getItem('developer'),
+        value: APP_STRINGS.API_SPRINT,
+        estimationType: sessionStorage.getItem('isHoursBasedProject') === 'true' ? 'hours' : 'storyPoints',
+      };
+      // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented code later.
+      // const isHoursBasedProject = sessionStorage.getItem('isHoursBasedProject') === 'true';
+      // const burndownVelocityQuery = { ...matchSprintQuery, type: isHoursBasedProject ? 'hours' : 'storyPoints' };
+
+      // const standupFetchPromises = [
+      //   fetchData(getUserList, setUserList, { companyId: matchSprintQuery.companyId, projectId: matchSprintQuery.projectId }),
+      //   fetchData(getReleaseDetails, setReleasesList, { projectId: matchSprintQuery.projectId, boardId: matchSprintQuery.boardId }),
+      //   fetchData(getTaskCount, setTaskCountData, matchSprintQuery),
+      //   fetchData(getAllStoryPointsCommittedAndCompleted, setStoryPointsData, matchSprintQuery),
+      //   fetchData(getSprintLength, setSprintLength, matchSprintQuery),
+      //   fetchData(getActualStoryPoints, setActualStoryPoints, matchSprintQuery),
+      //   fetchData(getBurndownData, setBurndownData, matchSprintQuery),
+      //   fetchData(getStoryPointData, setGetStoryPointData, matchSprintQuery),
+      //   fetchData(getjiraTableData, setJiraTableData, matchSprintQuery),
+      //   fetchData(getChurnApi(), setStoryChurnData, matchSprintQuery),
+      //   fetchData(getDailyBurnup, setDailyBurnup, matchSprintQuery),
+      //   fetchData(getSprintCompleteDate, setSprintCompleteDate, matchSprintQuery),
+      //   fetchData(getAvailableHours, setAvailableHours, matchSprintQuery),
+      //   fetchData(getBurndownVelocity, setBurndownVelocity, burndownVelocityQuery),
+      //   fetchData(getQAInsightsBugs, setQAInsightsBugsData, matchSprintQuery),
+      //   fetchData(getQAInsightsTests, setQAInsightsTestsData, matchSprintQuery),
+      //   fetchData(getQARefrence, setQAReferenceData, matchSprintQuery),
+      //   fetchData(fetchJiraStatusByDeveloper, setJiraStatusByDeveloper, matchSprintQuery),
+      // ];
+      // await Promise.all(standupFetchPromises);
+      const standupFetchPromises = [
+        fetchData(getReleaseDetails, setReleasesList, { projectId: matchSprintQuery.projectId, boardId: matchSprintQuery.boardId }),
+        fetchProjectManagementData(matchSprintQuery),
+        fetchStandupDashboardData(matchSprintQuery),
+      ];
+      await Promise.all(standupFetchPromises);
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    } catch (err) {
+      console.error('Error fetching Standup data:', err);
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+
+  /** Fetches only APIs required for Standup page when switching releases */
+  const handleReleaseForStandup = async (value) => {
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+      dispatch(setQAReferenceData(null));
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      sessionStorage.removeItem('sprintId');
+      sessionStorage.removeItem('sprintName');
+      //---Add this chage for UI-Performance-improvement
+      const releaseFromStore = store.getState()?.jira?.releasesList || [];
+      let releases = [];
+      if(releaseFromStore.length === 0){
+        releases = (await getReleaseDetails())?.data || [];
+      } else {
+        releases = releaseFromStore;
+      }
+      if (Array.isArray(releases) && releases.length > 0) {
+        dispatch(setReleasesList(releases));
+      }
+      const selectedRelease = releases.find((release) => release._id === value);
+      if (!selectedRelease) {
+        dispatch(setLoading(false));
+        dispatch(setLoadingEngMetrics(false));
+        return;
+      }
+      sessionStorage.setItem('releaseId', selectedRelease._id);
+      sessionStorage.setItem('releaseName', selectedRelease.releaseName);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE, APP_STRINGS.VALUE_RELEASE);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, APP_STRINGS.VALUE_RELEASE);
+      if (selectedRelease?.hours === true) {
+        sessionStorage.setItem('isHoursBasedProject', 'true');
+      } else {
+        sessionStorage.setItem('isHoursBasedProject', 'false');
+        const isAzure = String(sessionStorage.getItem('boardType') || '').toLowerCase().includes('azure');
+        const labelRelease = isAzure ? APP_STRINGS.LABEL_EPIC : APP_STRINGS.VALUE_RELEASE;
+        sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, labelRelease);
+      }
+      dispatch(setSelectedSprint({ selectedSprintId: '', selectedSprintName: '' }));
+      dispatch(setSelectedRelease({ selectedReleaseId: selectedRelease._id, selectedReleaseName: selectedRelease.releaseName }));
+      dispatch(setIsSprintOpen(false));
+      dispatch(setRelease(selectedRelease));
+      const matchReleaseQuery = {
+        companyId: sessionStorage.getItem('companyId'),
+        projectId: sessionStorage.getItem('projectId'),
+        boardId: sessionStorage.getItem('boardId'),
+        releaseId: sessionStorage.getItem('releaseId'),
+        value: APP_STRINGS.API_RELEASE,
+        repo: sessionStorage.getItem('repo'),
+        developer: sessionStorage.getItem('developer'),
+        estimationType: sessionStorage.getItem('isHoursBasedProject') === 'true' ? 'hours' : 'storyPoints',
+      };
+      // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented code later.
+      // const isHoursBasedProject = sessionStorage.getItem('isHoursBasedProject') === 'true';
+      // const burndownVelocityQuery = { ...matchReleaseQuery, type: isHoursBasedProject ? 'hours' : 'storyPoints' };
+
+      // const standupReleasePromises = [
+      //   fetchData(getUserList, setUserList, { companyId: matchReleaseQuery.companyId, projectId: matchReleaseQuery.projectId }),
+      //   fetchData(getReleaseDetails, setReleasesList, { projectId: matchReleaseQuery.projectId, boardId: matchReleaseQuery.boardId }),
+      //   fetchData(getTaskCount, setTaskCountData, matchReleaseQuery),
+      //   fetchData(getAllStoryPointsCommittedAndCompleted, setStoryPointsData, matchReleaseQuery),
+      //   fetchData(getSprintLength, setSprintLength, matchReleaseQuery),
+      //   fetchData(getActualStoryPoints, setActualStoryPoints, matchReleaseQuery),
+      //   fetchData(getReleaseBurndownData, setBurndownData, matchReleaseQuery),
+      //   fetchData(getStoryPointData, setGetStoryPointData, matchReleaseQuery),
+      //   fetchData(getjiraTableData, setJiraTableData, matchReleaseQuery),
+      //   fetchData(getChurnApi(), setStoryChurnData, matchReleaseQuery),
+      //   fetchData(getDailyBurnup, setDailyBurnup, matchReleaseQuery),
+      //   fetchData(getAvailableHours, setAvailableHours, matchReleaseQuery),
+      //   fetchData(getBurndownVelocity, setBurndownVelocity, burndownVelocityQuery),
+      //   fetchData(getQAInsightsBugs, setQAInsightsBugsData, matchReleaseQuery),
+      //   fetchData(getQAInsightsTests, setQAInsightsTestsData, matchReleaseQuery),
+      //   fetchData(getQARefrence, setQAReferenceData, matchReleaseQuery),
+      //   fetchData(fetchJiraStatusByDeveloper, setJiraStatusByDeveloper, matchReleaseQuery),
+      // ];
+      // await Promise.all(standupReleasePromises);
+      const standupReleasePromises = [
+        // Below commented for UI-Performance-improvement
+        // fetchData(getReleaseDetails(), setReleasesList, { projectId: matchReleaseQuery.projectId, boardId: matchReleaseQuery.boardId }),
+        fetchProjectManagementData(matchReleaseQuery),
+        fetchStandupDashboardData(matchReleaseQuery),
+      ];
+      await Promise.all(standupReleasePromises);
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    } catch (err) {
+      console.error('Error fetching Standup release data:', err);
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+
+  const handleProjectForReleaseDashboard = async (value, boardType = null, dispatch) => {
+    try {
+      dispatch(setLoading(true));
+      sessionStorage.removeItem('repo');
+      sessionStorage.removeItem('sprintId');
+      sessionStorage.removeItem('sprintName');
+      sessionStorage.removeItem('releaseId');
+      sessionStorage.removeItem('releaseName');
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE);
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL);
+
+      const projects = await getProjectList();
+      const selectedProj = projects.data.find((project) => project._id === value);
+      if (!selectedProj) throw new Error('Selected project not found');
+
+      sessionStorage.setItem('projectId', selectedProj._id);
+      sessionStorage.setItem('projectName', selectedProj.name);
+      if (boardType) {
+        const normalized = String(boardType).toLowerCase();
+        sessionStorage.setItem(
+          'boardType',
+          normalized.includes('azure') ? 'azure-board' : normalized,
+        );
+      }
+
+      dispatch(
+        setSelectedProject({
+          selectedProjectName: selectedProj.name,
+          selectedProjectId: selectedProj._id,
+        }),
+      );
+      dispatch(setSelectedRelease({}));
+      dispatch(setIsProjectOpen(false));
+
+      await Promise.all([
+        fetchData(getSprintList, setSprintList, {
+          projectId: selectedProj._id,
+          boardId: sessionStorage.getItem('boardId'),
+        }),
+        fetchData(getReleaseDetails, setReleasesList, {
+          projectId: selectedProj._id,
+          boardId: sessionStorage.getItem('boardId'),
+        }),
+      ]);
+
+      const state = store.getState();
+      const jiraData = state.jira;
+
+      const latestRelease = jiraData?.releasesList
+        ?.filter((r) => r.status?.toLowerCase() === 'unreleased')
+        .sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate))
+        ?.at(0)
+        || (Array.isArray(jiraData?.releasesList) && jiraData.releasesList.length > 0
+          ? [...jiraData.releasesList].sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate))[0]
+          : null);
+
+      if (latestRelease) {
+        sessionStorage.setItem('releaseId', latestRelease._id);
+        sessionStorage.setItem('releaseName', latestRelease.releaseName);
+        sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE, APP_STRINGS.VALUE_RELEASE);
+        sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, APP_STRINGS.VALUE_RELEASE);
+        dispatch(
+          setSelectedRelease({
+            selectedReleaseId: latestRelease._id,
+            selectedReleaseName: latestRelease.releaseName,
+          }),
+        );
+      }
+    } catch (error) {
+      console.error('Error fetching data on project change (release dashboard):', error);
+    } finally {
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+
+  const handleReleaseForReleaseDashboard = async (value) => {
+    try {
+      dispatch(setLoading(true));
+      sessionStorage.removeItem('sprintId');
+      sessionStorage.removeItem('sprintName');
+
+      const releases = (await getReleaseDetails())?.data || [];
+      const selectedRel = releases.find((release) => release._id === value);
+      if (!selectedRel) {
+        dispatch(setLoading(false));
+        return;
+      }
+
+      sessionStorage.setItem('releaseId', selectedRel._id);
+      sessionStorage.setItem('releaseName', selectedRel.releaseName);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE, APP_STRINGS.VALUE_RELEASE);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, APP_STRINGS.VALUE_RELEASE);
+
+      dispatch(setSelectedSprint({ selectedSprintId: '', selectedSprintName: '' }));
+      dispatch(
+        setSelectedRelease({
+          selectedReleaseId: selectedRel._id,
+          selectedReleaseName: selectedRel.releaseName,
+        }),
+      );
+      dispatch(setIsSprintOpen(false));
+      dispatch(setRelease(selectedRel));
+    } catch (error) {
+      console.error('Error fetching data on release change (release dashboard):', error);
+    } finally {
+      dispatch(setLoading(false));
+    }
+  };
+
+  const handleSprint = async (value, pageValue, forceRefresh = false) => {
+    if (location.pathname === RELEASE_DASHBOARD_PATH) return;
+    if (location.pathname === STANDUP_PATH) {
+      await handleSprintForStandup(value, forceRefresh);
+      return;
+    }
+    if (pageValue === undefined || null) {
+      pageValue = 7;
+    } else {
+      pageValue;
+    }
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+      // Clear QA Reference data when switching sprints
+      dispatch(setQAReferenceData(null));
+      sessionStorage.removeItem('releaseId');
+      sessionStorage.removeItem('releaseName');
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      const state = store.getState();
+      const sprints = state?.jira?.sprintList || (await getSprintList())?.data || [];
+      const selectedSprint = sprints.find((sprint) => sprint._id === value);
+      sessionStorage.setItem('sprintId', selectedSprint._id);
+      sessionStorage.setItem('sprintName', selectedSprint.name);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE, APP_STRINGS.VALUE_SPRINT);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, APP_STRINGS.VALUE_SPRINT);
+      if (selectedSprint?.hours === true) {
+        sessionStorage.setItem('isHoursBasedProject', 'true');
+      } else {
+        sessionStorage.setItem('isHoursBasedProject', 'false');
+        {
+          const isAzure = String(sessionStorage.getItem('boardType') || '')
+            .toLowerCase()
+            .includes('azure');
+          const labelSprint = isAzure ? APP_STRINGS.LABEL_ITERATION : APP_STRINGS.VALUE_SPRINT;
+          sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, labelSprint);
+        }
+      }
+      dispatch(setSelectedRelease({ selectedReleaseId: '', selectedReleaseName: '' }));
+      dispatch(
+        setSelectedSprint({
+          selectedSprintId: selectedSprint._id,
+          selectedSprintName: selectedSprint.name,
+        }),
+      );
+
+      dispatch(setSprint(selectedSprint));
+      const matchSprintQuery = {
+        companyId: sessionStorage.getItem('companyId'),
+        projectId: sessionStorage.getItem('projectId'),
+        boardId: sessionStorage.getItem('boardId'),
+        sprintId: sessionStorage.getItem('sprintId'),
+        repo: sessionStorage.getItem('repo'),
+        developer: sessionStorage.getItem('developer'),
+        value: APP_STRINGS.API_SPRINT,
+        estimationType: sessionStorage.getItem('isHoursBasedProject') === 'true' ? 'hours' : 'storyPoints',
+      };
+      // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented code later.
+      // const matchSprintQueryForTrends = {
+      //   ...matchSprintQuery,
+      //   pageValue,
+      // };
+      // const isHoursBasedProject = sessionStorage.getItem('isHoursBasedProject') === 'true';
+      // const burndownVelocityQuery = {
+      //   ...matchSprintQuery,
+      //   type: isHoursBasedProject ? 'hours' : 'storyPoints',
+      // };
+      // await fetchData(getReleaseReadinessDetails, addReleaseReadinessData, matchSprintQuery);
+
+      const path = location.pathname;
+      const query = matchSprintQuery;
+
+      if (path === DASHBOARD_PATH) {
+        // Priority: Dashboard needs CXO Data first
+        await fetchCXODashboardData({ ...query, pageValue });
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchProjectManagementData(query),
+          fetchStandupDashboardData(query),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      } else if (path === JIRA_PATH) {
+        // Priority: Engineering (Jira) needs PM Data first
+        await fetchProjectManagementData(query);
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchCXODashboardData({ ...query, pageValue }),
+          fetchStandupDashboardData(query),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      } else if (path === STANDUP_PATH) {
+        // Priority: Standup page needs Standup Data first
+        await fetchStandupDashboardData(query);
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchProjectManagementData(query),
+          fetchCXODashboardData({ ...query, pageValue }),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      } else if (path === GIT_PATH && repo) {
+        // Priority: Git page needs Git Data first
+        await fetchGitDashboardData(query);
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchProjectManagementData(query),
+          fetchCXODashboardData({ ...query, pageValue }),
+          fetchStandupDashboardData(query),
+        ]);
+      } else {
+        // Default: Parallelize all if path doesn't match specific priorities
+        await Promise.all([
+          fetchCXODashboardData({ ...query, pageValue }),
+          fetchProjectManagementData(query),
+          fetchStandupDashboardData(query),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      }
+
+      const endDate = new Date(selectedSprint?.endDate);
+      const formattedEndDate = endDate.toLocaleDateString('en-IN');
+      setSelectedSprintEndDate({ id: selectedSprint?._id, endDate: formattedEndDate });
+      const current_state = store.getState();
+      const cxoData = current_state.cxo;
+      getSonarQubeReportByRepo(cxoData.releaseReadinessData, repo);
+      dispatch(setLoadingEngMetrics(false));
+      dispatch(setLoading(false));
+    } catch (error) {
+      console.error('Error fetching data on sprint change:', error);
+      dispatch(setSelectedSprint({ selectedSprintId: '', selectedSprintName: '' }));
+      sessionStorage.removeItem('sprintId');
+      sessionStorage.removeItem('sprintName');
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE);
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL);
+    } finally {
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+
+  const handleRelease = async (value, forceRefresh = false) => {
+    if (location.pathname === RELEASE_DASHBOARD_PATH) {
+      await handleReleaseForReleaseDashboard(value);
+      return;
+    }
+    if (location.pathname === STANDUP_PATH) {
+      await handleReleaseForStandup(value, forceRefresh);
+      return;
+    }
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+      // Clear QA Reference data when switching releases
+      dispatch(setQAReferenceData(null));
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      sessionStorage.removeItem('sprintId');
+      sessionStorage.removeItem('sprintName');
+      const state = store.getState();
+      const releases = state?.jira?.releasesList || (await getReleaseDetails())?.data || [];
+      const selectedRelease = releases.find((release) => release._id === value);
+      sessionStorage.setItem('releaseId', selectedRelease._id);
+      sessionStorage.setItem('releaseName', selectedRelease.releaseName);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE, APP_STRINGS.VALUE_RELEASE);
+      sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, APP_STRINGS.VALUE_RELEASE);
+      if (selectedRelease?.hours === true) {
+        sessionStorage.setItem('isHoursBasedProject', 'true');
+      } else {
+        sessionStorage.setItem('isHoursBasedProject', 'false');
+        {
+        const isAzure = String(sessionStorage.getItem('boardType') || '')
+          .toLowerCase()
+          .includes('azure');
+        const labelRelease = isAzure ? APP_STRINGS.LABEL_EPIC : APP_STRINGS.VALUE_RELEASE;
+        sessionStorage.setItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL, labelRelease);
+      }
+      }
+      dispatch(setSelectedSprint({ selectedSprintId: '', selectedSprintName: '' }));
+      dispatch(
+        setSelectedRelease({
+          selectedReleaseId: selectedRelease._id,
+          selectedReleaseName: selectedRelease.releaseName,
+        }),
+      );
+      dispatch(setIsSprintOpen(false));
+      dispatch(setRelease(selectedRelease));
+      dispatch(setDailyBurnup([]));
+      const matchReleaseQuery = {
+        companyId: sessionStorage.getItem('companyId'),
+        projectId: sessionStorage.getItem('projectId'),
+        boardId: sessionStorage.getItem('boardId'),
+        releaseId: sessionStorage.getItem('releaseId'),
+        value: APP_STRINGS.API_RELEASE,
+        repo: sessionStorage.getItem('repo'),
+        developer: sessionStorage.getItem('developer'),
+        estimationType: sessionStorage.getItem('isHoursBasedProject') === 'true' ? 'hours' : 'storyPoints',
+      };
+      // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented code later.
+      // const isHoursBasedProject = sessionStorage.getItem('isHoursBasedProject') === 'true';
+      // const burndownVelocityQuery = {
+      //   ...matchReleaseQuery,
+      //   type: isHoursBasedProject ? 'hours' : 'storyPoints',
+      // };
+      // await fetchData(getReleaseReadinessDetails, addReleaseReadinessData, matchReleaseQuery);
+
+      const path = location.pathname;
+      const query = matchReleaseQuery;
+
+      if (path === DASHBOARD_PATH) {
+        // Priority: Dashboard needs CXO Data first
+        await fetchCXODashboardData(query);
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchProjectManagementData(query),
+          fetchStandupDashboardData(query),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      } else if (path === JIRA_PATH) {
+        // Priority: Engineering (Jira) needs PM Data first
+        await fetchProjectManagementData(query);
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchCXODashboardData(query),
+          fetchStandupDashboardData(query),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      } else if (path === STANDUP_PATH) {
+        // Priority: Standup page needs Standup Data first
+        await fetchStandupDashboardData(query);
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchProjectManagementData(query),
+          fetchCXODashboardData(query),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      } else if (path === GIT_PATH && repo) {
+        // Priority: Git page needs Git Data first
+        await fetchGitDashboardData(query);
+        // Pre-load background data for other pages
+        await Promise.all([
+          fetchProjectManagementData(query),
+          fetchCXODashboardData(query),
+          fetchStandupDashboardData(query),
+        ]);
+      } else {
+        // Default: Parallelize all if path doesn't match specific priorities
+        await Promise.all([
+          fetchCXODashboardData(query),
+          fetchProjectManagementData(query),
+          fetchStandupDashboardData(query),
+          repo ? fetchGitDashboardData(query) : Promise.resolve(),
+        ]);
+      }
+
+      const releaseDate = new Date(selectedRelease?.releaseDate);
+      const formattedReleaseDate = releaseDate.toLocaleDateString('en-IN');
+      setSelectedReleaseDate({ id: selectedRelease?._id, releaseDate: formattedReleaseDate });
+      const current_state = store.getState();
+      const cxoData = current_state.cxo;
+      getSonarQubeReportByRepo(cxoData.releaseReadinessData, repo);
+      dispatch(setLoadingEngMetrics(false));
+      dispatch(setLoading(false));
+    } catch (error) {
+      console.error('Error fetching data on release change:', error);
+      dispatch(setSelectedRelease({ selectedReleaseId: '', selectedReleaseName: '' }));
+      sessionStorage.removeItem('releaseId');
+      sessionStorage.removeItem('releaseName');
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE);
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL);
+    } finally {
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+
+  const handleRepo = async (value, dispatch) => {
+    try {
+      store.dispatch(resetGit());
+      resetData();
+      dispatch(setSelectedDeveloperName(''));
+      sessionStorage.removeItem('developer');
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      const repoList = await getRepoList();
+      const selectedRepo = repoList?.data?.find((repo) => repo === value.label);
+      if (!selectedRepo) {
+        console.warn('Selected repo not found in repoList');
+        return;
+      }
+      sessionStorage.setItem('repo', selectedRepo);
+      dispatch(setSelectedRepository(selectedRepo));
+
+      const projectId = sessionStorage.getItem('projectId');
+      const allSprintsResp = await getSprintList({ projectId });
+      const allReleasesResp = await getReleaseDetails({ projectId });
+
+      const allSprints = allSprintsResp?.data || [];
+      const allReleases = allReleasesResp?.data || [];
+
+      const currentSprintId = sessionStorage.getItem('sprintId');
+      const currentReleaseId = sessionStorage.getItem('releaseId');
+
+      const sprintStillValid = allSprints.some((s) => s._id === currentSprintId);
+      const releaseStillValid = allReleases.some((r) => r._id === currentReleaseId);
+
+      if (!sprintStillValid) {
+        dispatch(setSelectedSprint({ selectedSprintId: '', selectedSprintName: '' }));
+        sessionStorage.removeItem('sprintId');
+        sessionStorage.removeItem('sprintName');
+      }
+
+      if (!releaseStillValid) {
+        dispatch(setSelectedRelease({ selectedReleaseId: '', selectedReleaseName: '' }));
+        sessionStorage.removeItem('releaseId');
+        sessionStorage.removeItem('releaseName');
+      }
+    } catch (error) {
+      console.error('Error fetching data on repo change:', error);
+    }
+  };
+
+  const handleDeveloper = async (value) => {
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+
+      sessionStorage.setItem('developer', value);
+      const isSprint = sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE);
+      const isRelease = isSprint === APP_STRINGS.VALUE_RELEASE;
+
+      const matchSprintQuery = {
+        companyId: sessionStorage.getItem('companyId'),
+        projectId: sessionStorage.getItem('projectId'),
+        boardId: sessionStorage.getItem('boardId'),
+        repo: sessionStorage.getItem('repo'),
+        value: isRelease ? APP_STRINGS.API_RELEASE : APP_STRINGS.API_SPRINT,
+        developer: value,
+        estimationType: sessionStorage.getItem('isHoursBasedProject') === 'true' ? 'hours' : 'storyPoints',
+        ...(isRelease
+          ? { releaseId: sessionStorage.getItem('releaseId') }
+          : { sprintId: sessionStorage.getItem('sprintId') }),
+      };
+      // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented code later.
+      // const isHoursBasedProject = sessionStorage.getItem('isHoursBasedProject') === 'true';
+      // const burndownVelocityQuery = {
+      //   ...matchSprintQuery,
+      //   type: isHoursBasedProject ? 'hours' : 'storyPoints',
+      // };
+
+      dispatch(setSelectedDeveloperName({ value }));
+
+      const developerPmSections = 'userList,actualStoryPoints,burndownData,availableHours,burndownVelocity,qaInsightsBugs,qaInsightsTests';
+      const fetchPromises = [
+        // --- Unified project management endpoint (scoped sections for developer change) ---
+        fetchProjectManagementData(matchSprintQuery, developerPmSections),
+        // --- Unified standup endpoint (scoped sections for developer change) ---
+        fetchStandupDashboardData(matchSprintQuery, 'jiraData,jiraStatusByDev,standupBurndown,openPRs,mergedWithoutReview,storyChurn,storyChurnExcludingBugs,dailyBurnup'),
+        // For testing purposes we are using this change. If this endpoint works properly, we will remove the commented code later.
+        // fetchData(fetchJiraStatusByDeveloper, setJiraStatusByDeveloper, matchSprintQuery),
+        // fetchData(getjiraTableData, setJiraTableData, matchSprintQuery),
+        // fetchData(getOpenPRsData, setStandupOpenPRsData, matchSprintQuery),
+        // fetchData(getMergedPRsWithoutReviewData, setStandupMergedPRsData, matchSprintQuery),
+        // fetchData(getStandupBurndown, setStandupBurndown, matchSprintQuery),
+      ];
+
+      await Promise.all(fetchPromises);
+    } catch (error) {
+      console.error('Error resetting sprint and release:', error);
+    } finally {
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+
+  const handleTeam = async (value) => {
+    try {
+      dispatch(setLoading(true));
+      dispatch(setLoadingEngMetrics(true));
+
+      const isSprint = sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE);
+      const isRelease = isSprint === APP_STRINGS.VALUE_RELEASE;
+
+      const matchQuery = {
+        companyId: sessionStorage.getItem('companyId'),
+        projectId: sessionStorage.getItem('projectId'),
+        boardId: sessionStorage.getItem('boardId'),
+        repo: sessionStorage.getItem('repo'),
+        value: isRelease ? APP_STRINGS.API_RELEASE : APP_STRINGS.API_SPRINT,
+        estimationType: sessionStorage.getItem('isHoursBasedProject') === 'true' ? 'hours' : 'storyPoints',
+        ...(isRelease
+          ? { releaseId: sessionStorage.getItem('releaseId') }
+          : { sprintId: sessionStorage.getItem('sprintId') }),
+      };
+      // For testing purposes we are using unified endpoints. If they work properly, we will remove the commented code later.
+      // const isHoursBasedProject = sessionStorage.getItem('isHoursBasedProject') === 'true';
+      // const burndownVelocityQuery = {
+      //   ...matchQuery,
+      //   type: isHoursBasedProject ? 'hours' : 'storyPoints',
+      // };
+
+      dispatch(setSelectedDeveloperName({ value }));
+
+      const teamPmSections = 'actualStoryPoints,burndownData,taskCount,storyPointData,availableHours,burndownVelocity,qaInsightsBugs,qaInsightsTests,qaReference';
+      const fetchPromises = [
+        // --- Unified project management endpoint (scoped sections for team change) ---
+        fetchProjectManagementData(matchQuery, teamPmSections),
+        // --- Unified standup endpoint (scoped sections for team change) ---
+        fetchStandupDashboardData(matchQuery, 'jiraData,openPRs,mergedWithoutReview,storyChurn,storyChurnExcludingBugs,dailyBurnup'),
+        // --- Unified CXO endpoint (scoped for team change) ---
+        fetchCXODashboardData(matchQuery, 'cxoData'),
+        // For testing purposes we are using this change. If this endpoint works properly, we will remove the commented code later.
+        // fetchData(getjiraTableData, setJiraTableData, matchQuery),
+        // fetchData(getOpenPRsData, setStandupOpenPRsData, matchQuery),
+        // fetchData(getMergedPRsWithoutReviewData, setStandupMergedPRsData, matchQuery),
+        // fetchData(getReleaseReadinessDetails, addReleaseReadinessData, matchQuery),
+      ];
+
+      await Promise.all(fetchPromises);
+    } catch (error) {
+      console.error('Error resetting sprint and release:', error);
+    } finally {
+      dispatch(setLoading(false));
+      dispatch(setLoadingEngMetrics(false));
+    }
+  };
+
+  const resetData = () => {
+    store.dispatch(resetCXO());
+    store.dispatch(resetSonarQubeData());
+    dispatch(setVelocityData([]));
+    dispatch(setBugClassification([]));
+    dispatch(setCostOfFixingDefect([]));
+    dispatch(setTimeToFix([]));
+    dispatch(setDefectDensity([]));
+    dispatch(setTaskCountData([]));
+    dispatch(setStatusCountData([]));
+    dispatch(setStoryPointsData([]));
+    dispatch(setClosedPRs([]));
+    dispatch(setLeadTimeChanges([]));
+    dispatch(setTotalPRs([]));
+    dispatch(setOpenPRs([]));
+    dispatch(setPRSize([]));
+    dispatch(setGitCycleTime([]));
+    dispatch(setApprovalRate([]));
+    dispatch(setMergedWithoutReviewPRs([]));
+    dispatch(setDefectRejection([]));
+    dispatch(setDefectRemovalEfficiency([]));
+    dispatch(setIterationTime([]));
+    dispatch(setGetDoraData([]));
+    dispatch(setDefectLeakageAnalysis([]));
+    dispatch(setGetStoryPointData([]));
+    dispatch(setJiraTableData([]));
+    dispatch(setSprintLength([]));
+    dispatch(setStoryChurnData([]));
+    dispatch(setCycleTime([]));
+    dispatch(setSprintCompleteDate([]));
+    dispatch(setAvailableHours([]));
+    dispatch(setUserList([]));
+  };
+  const handleValue = () => {
+    try {
+      resetData();
+      sessionStorage.removeItem('sprintId');
+      sessionStorage.removeItem('sprintName');
+      sessionStorage.removeItem('releaseId');
+      sessionStorage.removeItem('releaseName');
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE);
+      sessionStorage.removeItem(APP_STRINGS.SESSION_TYPE_VALUE_LABEL);
+      sessionStorage.removeItem('developer');
+      sessionStorage.removeItem('velocityToggleType');
+      sessionStorage.removeItem('velocityToggleTypeManual');
+      dispatch(setSelectedDeveloperName(''));
+      dispatch(setSelectedSprint({ selectedSprintId: '', selectedSprintName: '' }));
+      dispatch(setSelectedRelease({ selectedReleaseId: '', selectedReleaseName: '' }));
+    } catch (error) {
+      console.error('Error resetting sprint and release:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (!refreshToken) return;
+    if (refreshInFlightRef.current) return;
+
+    const companyId = sessionStorage.getItem('companyId');
+    const projectId = sessionStorage.getItem('projectId');
+    const boardId = sessionStorage.getItem('boardId');
+    if (!projectId || !boardId) return;
+
+    const typeValue = sessionStorage.getItem(APP_STRINGS.SESSION_TYPE_VALUE);
+    const sprintId = sessionStorage.getItem('sprintId');
+    const releaseId = sessionStorage.getItem('releaseId');
+
+    const dedupeKey = `${refreshToken}|${companyId || ''}|${projectId}|${boardId}|${typeValue || ''}|${sprintId || ''}|${releaseId || ''}`;
+    if (dedupeKey === lastCompletedJiraRefreshTokenEffectKey) {
+      return;
+    }
+    if (dedupeKey === jiraRefreshTokenEffectInFlightKey) {
+      return;
+    }
+    jiraRefreshTokenEffectInFlightKey = dedupeKey;
+
+    refreshInFlightRef.current = true;
+    Promise.resolve()
+      .then(async () => {
+        if (typeValue === APP_STRINGS.VALUE_RELEASE && releaseId) {
+          await handleRelease(releaseId, true);
+        } else if (sprintId) {
+          await handleSprint(sprintId, undefined, true);
+        }
+      })
+      .finally(() => {
+        refreshInFlightRef.current = false;
+        if (jiraRefreshTokenEffectInFlightKey === dedupeKey) {
+          jiraRefreshTokenEffectInFlightKey = null;
+        }
+        lastCompletedJiraRefreshTokenEffectKey = dedupeKey;
+      });
+    // Intentionally refreshToken only: module-level dedupe avoids remount duplicate calls; adding handleRelease/handleSprint would refire every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
+
+  return {
+    handleProject,
+    handleSprint,
+    handleRelease,
+    handleRepo,
+    handleValue,
+    handleDeveloper,
+    handleTeam,
+    handleOrganization,
+    fetchData,
+    updateCapacityValues,
+    fetchProjectManagementData,
+  };
+};
+export function getMetricValue({
+  selectedValue,
+  toggleType,
+  selectedSprintData,
+  selectedReleaseData,
+  metricType,
+}) {
+  const value = typeof selectedValue === 'string' ? selectedValue : selectedValue?.value;
+  const sourceData = value === APP_STRINGS.VALUE_SPRINT ? selectedSprintData : selectedReleaseData;
+  if (!sourceData) return 0;
+  const cleanMetricType = metricType.trim();
+  const lowerCaseMetricType = cleanMetricType.toLowerCase();
+  let key;
+  if (lowerCaseMetricType.includes('storypoints') || lowerCaseMetricType.includes('hours')) {
+    key = cleanMetricType;
+  } else {
+    const suffix = toggleType === APP_STRINGS.STORY_POINTS ? 'StoryPoints' : APP_STRINGS.HOURS;
+    key = `${cleanMetricType}${suffix}`;
+  }
+  return sourceData?.[key] ?? 0;
+}
+
+export function formatNumberWithSuffix(value, decimals = 0) {
+  if (value === null || value === undefined || isNaN(value)) {
+    return { formatted: '0', original: 0 };
+  }
+
+  const num = parseFloat(value);
+  const absNum = Math.abs(num);
+
+  if (absNum < 1000) {
+    return {
+      formatted: num.toString(),
+      original: num,
+    };
+  } else if (absNum < 100000) {
+    // For 1,000 to 99,999 - show as K
+    const formatted = (num / 1000).toFixed(decimals);
+    return {
+      formatted: `${formatted}K`,
+      original: num,
+    };
+  } else if (absNum < 10000000) {
+    // For 100,000 to 9,999,999 - show as L (Lakhs)
+    const formatted = (num / 100000).toFixed(decimals);
+    return {
+      formatted: `${formatted}L`,
+      original: num,
+    };
+  } else {
+    // For 10,000,000 and above - show as M (Millions)
+    const formatted = (num / 1000000).toFixed(decimals);
+    return {
+      formatted: `${formatted}M`,
+      original: num,
+    };
+  }
+}
