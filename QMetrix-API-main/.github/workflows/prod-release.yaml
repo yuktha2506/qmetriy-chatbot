@@ -1,0 +1,71 @@
+name: Tag_and_release
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Select the type of release"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+        - major
+        - minor
+        - patch
+
+permissions:
+  contents: write
+
+jobs:
+  create_tag_and_release:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: create a tag
+        id: tag_release
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}       
+          default_bump: ${{ github.event.inputs.release_type }}
+          tag_prefix: v
+
+      - name: Get New Tag
+        run: echo "NEW_TAG=${{ steps.tag_release.outputs.new_tag }}" >> $GITHUB_ENV
+
+      - name: Generate Changelog
+        id: changelog
+        uses: janheinrichmerker/action-github-changelog-generator@v2.3
+        with:
+          token: ${{ secrets.TAG_AND_RELEASE }}  # Personal Access Token (PAT)
+          output: './CHANGELOG.md'
+          pullRequests: true
+          prLabel: "Merged PR Details"
+          simpleList: true
+          stripHeaders: true
+          stripGeneratorNotice: true
+          compareLink: false
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "${{ env.NEW_TAG }}"
+          release_name: "${{ env.NEW_TAG }}"
+          body: "${{ steps.changelog.outputs.changelog }}" 
+          draft: false
+          prerelease: false
+
+      # - name: create release
+      #   uses: Rorychan/jira-releases-action@v1
+      #   with:
+      #     jira-server: '${{ secrets.ATLASSIAN_CLOUD_DOMAIN }}'  # Use your Jira server URL
+      #     jira-email: '${{ secrets.ATLASSIAN_CLOUD_USER }}'  # Use your Jira email (stored as GitHub Secret)
+      #     jira-api-token: '${{ secrets.ATLASSIAN_CLOUD_APIKEY }}'  # Use your Jira API token (stored as GitHub Secret)
+      #     project-name: "QM"  # Your Jira project key
+      #     release-name: '${{ env.NEW_TAG }}'
