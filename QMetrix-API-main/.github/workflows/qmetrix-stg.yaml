@@ -1,0 +1,89 @@
+name: deploy-qmetrix-api-prod
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy-api:
+    if: github.event_name == 'workflow_dispatch' 
+    # if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: stg
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+
+      - name: Notify Google Chat (job started)
+        env:
+          GCHAT_WEBHOOK_URL: ${{ secrets.GCHAT_WEBHOOK_URL }}
+        run: |
+          MSG="Prod API deployment started\nRepo: ${{ github.repository }}\nRef: ${{ github.ref }}\nActor: ${{ github.actor }}\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -X POST -H 'Content-Type: application/json' -d "{\"text\":\"${MSG}\"}" "$GCHAT_WEBHOOK_URL"
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Set API Base URL for STG in .env file
+        run: |
+              echo "ALLOWED_ORIGIN=${{ secrets.ALLOWED_ORIGIN_STG }}" >> $GITHUB_ENV 
+              echo "NODE_ENV=${{ secrets.NODE_ENV_PROD}}" >> $GITHUB_ENV
+              echo "PORT=${{ secrets.PORT}}" >> $GITHUB_ENV
+              # echo "TENANT_DB=${{ secrets.TENANT_DB_PROD}}" >> $GITHUB_ENV
+              echo "JWT_SECRET=${{ secrets.JWT_SECRET}}" >> $GITHUB_ENV
+              echo "JWT_EXPIRE=${{ secrets.JWT_EXPIRE}}" >> $GITHUB_ENV
+              echo "GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID}}" >> $GITHUB_ENV
+              echo "GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET}}" >> $GITHUB_ENV
+              echo "SESSION_SECRET=${{ secrets.SESSION_SECRET}}" >> $GITHUB_ENV
+              echo "SONAR_TOKEN_DEV=${{ secrets.SONAR_TOKEN_DEV}}" >> $GITHUB_ENV
+              echo "SONAR_HOST_URL_DEV=${{ secrets.SONAR_HOST_URL_DEV}}" >> $GITHUB_ENV
+              echo "SONAR_SCANNER_PATH=${{ secrets.SONAR_SCANNER_PATH}}" >> $GITHUB_ENV
+              echo "API_BASE_URL=${{ secrets.API_BASE_URL }}" >> $GITHUB_ENV
+              echo "UI_BASE_URL=${{ secrets.UI_BASE_URL }}" >> $GITHUB_ENV
+              echo "REACT_APP_API_BASE_URL=${{ secrets.REACT_APP_API_BASE_URL }}" >> $GITHUB_ENV
+              echo "RESET_PASSWORD_SECRET_KEY=${{ secrets.RESET_PASSWORD_SECRET_KEY}}" >> $GITHUB_ENV
+              echo "NODE_SENDER_MAIL_ID=${{ secrets.NODE_SENDER_MAIL_ID}}" >> $GITHUB_ENV
+              echo "NODE_SENDER_MAIL_ID_HOST=${{ secrets.NODE_SENDER_MAIL_ID_HOST}}" >> $GITHUB_ENV
+              echo "NODE_SENDER_MAIL_PASS=${{ secrets.NODE_SENDER_MAIL_PASS}}" >> $GITHUB_ENV
+              echo "NODE_SENDER_MAIL_USER=${{ secrets.NODE_SENDER_MAIL_USER}}" >> $GITHUB_ENV
+              echo "ENCRYPT_DECRYPT_SECRET_KEY=${{ secrets.ENCRYPT_DECRYPT_SECRET_KEY}}" >> $GITHUB_ENV
+              echo "TENANT_DB=${{ secrets.TENANT_DB_PRODUCTION}}" >> $GITHUB_ENV
+              echo "TENANT_DB_PROD_CA_FILE=${{ secrets.TENANT_DB_PROD_CA_FILE}}" >> $GITHUB_ENV
+        
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Stop the previous application instance
+        run: |
+            #export PM2_HOME=/opt/.pm2
+            pm2 stop QM-api || echo "No process found to stop"
+
+      - name: delete the previous application process
+        run: |
+            #export PM2_HOME=/opt/.pm2
+            pm2 delete QM-api || echo "No process found to delete"
+
+      - name: start the application
+        run: |
+           #export PM2_HOME=/opt/.pm2
+           export NODE_OPTIONS="--max-old-space-size=8192"
+           pm2 start npm --name QM-api -- start --log-date-format "YYYY-MM-DD HH:mm:ss"
+            
+      - name: Save PM2 Process List
+        run: |
+             #export PM2_HOME=/opt/.pm2
+             pm2 save
+ 
+      - name: Notify Google Chat
+        if: always()
+        env:
+          GCHAT_WEBHOOK_URL: ${{ secrets.GCHAT_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ job.status }}"
+          EMOJI=$([ "$STATUS" = "success" ] && echo "✅" || echo "❌")
+          MSG="Prod API Deployment ${EMOJI}\nStatus: ${STATUS}\nRepo: ${{ github.repository }}\nActor: ${{ github.actor }}\nRun: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -X POST -H 'Content-Type: application/json' -d "{\"text\":\"${MSG}\"}" "$GCHAT_WEBHOOK_URL"
