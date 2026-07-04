@@ -1,0 +1,6 @@
+{
+    "execMap": {
+        "js": "babel-node"
+    },
+    "nodeArgs": ["--max-old-space-size=8192"]
+}
