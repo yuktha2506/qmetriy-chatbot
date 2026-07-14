@@ -1,0 +1,276 @@
+import { JiraReleaseModel, SprintModel } from '../../../project-management/jira/model';
+import { PullRequestModel } from '../../github/model';
+import { getSprintDates, getReleaseDates } from '../../common/scmHelper';
+import { Types } from 'mongoose';
+import { redis } from '../../../../server.js';
+import cache from '../../../../utils/cache.js';
+import { RELEASE_STATUS_RELEASED, RELEASE_STATUS_UNRELEASED } from '../../../../utils/constants/statusConstants.js';
+
+class GitLabCycleTimeService {
+    async getGitLabCycleTime(requestParams) {
+        try {
+            const { companyId, projectId, boardId, sprintId, releaseId, repo, tenantConnection } = requestParams;
+
+            const cacheKey = cache.generateKey('gitLabCycleTime', {
+                projectId,
+                companyId,
+                boardId,
+                sprintId,
+                releaseId,
+                repo,
+            });
+            let cached = null;
+            try {
+                cached = await redis.get(cacheKey);
+            } catch (err) {
+                console.warn('Redis not available, skipping cache get:', err.message);
+            }
+            if (cached) {
+                const data = JSON.parse(cached);
+                return data;
+            }
+
+            const Sprint = SprintModel(tenantConnection);
+            const JiraRelease = JiraReleaseModel(tenantConnection);
+            const MergeRequest = PullRequestModel(tenantConnection);
+            const sprintQuery = { companyId, projectId };
+            if (boardId) {
+                sprintQuery.boardId = new Types.ObjectId(boardId);
+            }
+            const allSprints = await Sprint.find(sprintQuery);
+            const releaseQuery = {
+                companyId,
+                projectId,
+                status: { $in: [RELEASE_STATUS_RELEASED, RELEASE_STATUS_UNRELEASED] },
+            };
+            if (boardId) {
+                releaseQuery.boardId = new Types.ObjectId(boardId);
+            }
+            const allReleases = await JiraRelease.find(releaseQuery);
+            const mergeRequestQuery = {
+                companyId,
+                projectId,
+                repo,
+            };
+            if (boardId) {
+                mergeRequestQuery.boardId = new Types.ObjectId(boardId);
+            }
+            const allMergeRequests = await MergeRequest.find(mergeRequestQuery);
+            const calculateCycleTime = (mrs, startDate, endDate) => {
+                const totalMRs = mrs.length;
+                const totalTimeInDays = mrs.reduce((total, mr) => {
+                    if (mr.commits && mr.commits.length > 0 && mr.prClosedAt >= new Date(startDate) && mr.prClosedAt < new Date(endDate)) {
+                        const sortedCommits = mr.commits.sort((a, b) => new Date(a.date) - new Date(b.date));
+                        const firstCommitTime = new Date(sortedCommits[0].date).getTime();
+                        const mergeTime = mr.prMergedAt ? new Date(mr.prMergedAt).getTime() : 0;
+                        if (mergeTime && mergeTime > firstCommitTime) {
+                            total += (mergeTime - firstCommitTime) / (1000 * 60 * 60 * 24);
+                        }
+                    }
+                    return total;
+                }, 0);
+
+                return {
+                    cycleTime: Math.max(0, Math.round(totalTimeInDays / totalMRs || 0)),
+                    mrsMerged: mrs.filter((mr) => mr.prMergedAt).length,
+                    mrsOpen: mrs.filter((mr) => !mr.prMergedAt).length,
+                };
+            };
+
+            const calculateCycleTimeByDev = (mrs, startDate, endDate) => {
+                const cycleTimeByDev = {};
+
+                for (const mr of mrs) {
+                    const developer = mr.prCreatedBy;
+                    if (!cycleTimeByDev[developer]) {
+                        cycleTimeByDev[developer] = {
+                            totalMRs: 0,
+                            totalTimeInDays: 0,
+                        };
+                    }
+
+                    if (mr.commits && mr.commits.length > 0 && mr.prClosedAt >= new Date(startDate) && mr.prClosedAt < new Date(endDate)) {
+                        const sortedCommits = mr.commits.sort((a, b) => new Date(a.date) - new Date(b.date));
+                        const firstCommitTime = new Date(sortedCommits[0].date).getTime();
+                        const mergeTime = mr.prMergedAt ? new Date(mr.prMergedAt).getTime() : 0;
+
+                        if (mergeTime && mergeTime > firstCommitTime) {
+                            cycleTimeByDev[developer].totalTimeInDays += (mergeTime - firstCommitTime) / (1000 * 60 * 60 * 24);
+                        }
+                        cycleTimeByDev[developer].totalMRs++;
+                    }
+                }
+
+                return Object.entries(cycleTimeByDev).map(([name, { totalMRs, totalTimeInDays }]) => ({
+                    name,
+                    cycleTime: Math.max(0, Math.round(totalTimeInDays / totalMRs || 0)),
+                }));
+            };
+
+            const result = {
+                cycleTimePerSprintOrRelease: null,
+                cycleTimeByDev: [],
+                detailedCycleTimeMetrics: {
+                    cycleTime: 0,
+                    codingTime: 0,
+                    pickupTime: 0,
+                    reviewTime: 0,
+                },
+            };
+
+            if (sprintId) {
+                const sortedSprints = allSprints.sort((a, b) => a.startDate - b.startDate);
+                const selectedSprint = sortedSprints.find((sprint) => sprint._id.equals(sprintId));
+
+                if (!selectedSprint) {
+                    throw new Error('Selected sprint not found');
+                }
+
+                const selectedSprintIndex = sortedSprints.findIndex((sprint) => sprint._id.equals(sprintId));
+                const historicalSprints = sortedSprints.slice(Math.max(0, selectedSprintIndex - 5), selectedSprintIndex + 1);
+
+                result.cycleTimePerSprintOrRelease = historicalSprints.map((period) => {
+                    const periodMRs = allMergeRequests.filter((mr) => mr.sprintId.includes(period._id));
+                    const { startDate, endDate } = getSprintDates(allSprints, period._id);
+                    const cycleTimeData = calculateCycleTime(periodMRs, startDate, endDate);
+                    return {
+                        name: period.name,
+                        ...cycleTimeData,
+                    };
+                });
+
+                const selectedSprintMRs = allMergeRequests.filter((mr) => mr.sprintId.includes(sprintId));
+                result.cycleTimeByDev = calculateCycleTimeByDev(selectedSprintMRs, getSprintDates(allSprints, sprintId).startDate, getSprintDates(allSprints, sprintId).endDate);
+
+                const cycleTimeData = calculateCycleTime(selectedSprintMRs, getSprintDates(allSprints, sprintId).startDate, getSprintDates(allSprints, sprintId).endDate);
+
+                result.detailedCycleTimeMetrics = {
+                    cycleTime: cycleTimeData.cycleTime,
+                    codingTime: Math.round(
+                        selectedSprintMRs.reduce((total, mr) => {
+                            if (mr.commits && mr.commits.length > 0) {
+                                const sortedCommits = mr.commits.sort((a, b) => new Date(a.date) - new Date(b.date));
+                                const firstCommitTime = new Date(sortedCommits[0].date).getTime();
+                                const mrCreatedTime = new Date(mr.prCreatedAt).getTime();
+                                total += (mrCreatedTime - firstCommitTime) / (1000 * 60 * 60);
+                            }
+                            return total;
+                        }, 0)
+                    ),
+                    pickupTime: Math.round(
+                        selectedSprintMRs.reduce((total, mr) => {
+                            if (mr.reviews && mr.reviews.length > 0) {
+                                const userReviews = mr.reviews.filter((review) => review.reviewState === 'manual');
+                                if (userReviews.length > 0) {
+                                    userReviews.sort((a, b) => new Date(a.reviewDate) - new Date(b.reviewDate));
+                                    const firstReviewTime = new Date(userReviews[0].reviewDate).getTime();
+                                    const mrCreatedTime = new Date(mr.prCreatedAt).getTime();
+                                    total += (firstReviewTime - mrCreatedTime) / (1000 * 60 * 60);
+                                }
+                            }
+                            return total;
+                        }, 0)
+                    ),
+                    reviewTime: Math.round(
+                        selectedSprintMRs.reduce((total, mr) => {
+                            if (mr.reviews && mr.reviews.length > 0 && mr.prMergedAt) {
+                                const userReviews = mr.reviews.filter((review) => review.reviewState === 'manual');
+                                if (userReviews.length > 0) {
+                                    userReviews.sort((a, b) => new Date(a.reviewDate) - new Date(b.reviewDate));
+                                    const firstReviewTime = new Date(userReviews[0].reviewDate).getTime();
+                                    const mergedTime = new Date(mr.prMergedAt).getTime();
+                                    total += (mergedTime - firstReviewTime) / (1000 * 60 * 60);
+                                }
+                            }
+                            return total;
+                        }, 0)
+                    ),
+                };
+            }
+
+            if (releaseId) {
+                const sortedReleases = allReleases.sort((a, b) => new Date(a.releaseDate) - new Date(b.releaseDate));
+                const selectedRelease = sortedReleases.find((release) => release._id.equals(releaseId));
+
+                if (!selectedRelease) {
+                    throw new Error('Selected release not found');
+                }
+
+                const selectedReleaseIndex = sortedReleases.findIndex((release) => release._id.equals(releaseId));
+                const historicalReleases = sortedReleases.slice(Math.max(0, selectedReleaseIndex - 5), selectedReleaseIndex + 1);
+
+                result.cycleTimePerSprintOrRelease = historicalReleases.map((period) => {
+                    const periodMRs = allMergeRequests.filter((mr) => mr.fixVersion === period.releaseName);
+                    const { startDate, endDate } = getReleaseDates(allReleases, period._id);
+                    const cycleTimeData = calculateCycleTime(periodMRs, startDate, endDate);
+                    return {
+                        name: period.releaseName,
+                        ...cycleTimeData,
+                    };
+                });
+
+                const selectedReleaseMRs = allMergeRequests.filter((mr) => mr.fixVersion === selectedRelease.releaseName);
+                result.cycleTimeByDev = calculateCycleTimeByDev(selectedReleaseMRs, getReleaseDates(allReleases, releaseId).startDate, getReleaseDates(allReleases, releaseId).endDate);
+
+                const cycleTimeData = calculateCycleTime(selectedReleaseMRs, getReleaseDates(allReleases, releaseId).startDate, getReleaseDates(allReleases, releaseId).endDate);
+
+                result.detailedCycleTimeMetrics = {
+                    cycleTime: cycleTimeData.cycleTime,
+                    codingTime: Math.round(
+                        selectedReleaseMRs.reduce((total, mr) => {
+                            if (mr.commits && mr.commits.length > 0) {
+                                const sortedCommits = mr.commits.sort((a, b) => new Date(a.date) - new Date(b.date));
+                                const firstCommitTime = new Date(sortedCommits[0].date).getTime();
+                                const mrCreatedTime = new Date(mr.prCreatedAt).getTime();
+                                total += (mrCreatedTime - firstCommitTime) / (1000 * 60 * 60);
+                            }
+                            return total;
+                        }, 0)
+                    ),
+                    pickupTime: Math.round(
+                        selectedReleaseMRs.reduce((total, mr) => {
+                            if (mr.reviews && mr.reviews.length > 0) {
+                                const userReviews = mr.reviews.filter((review) => review.reviewState === 'manual');
+                                if (userReviews.length > 0) {
+                                    userReviews.sort((a, b) => new Date(a.reviewDate) - new Date(b.reviewDate));
+                                    const firstReviewTime = new Date(userReviews[0].reviewDate).getTime();
+                                    const mrCreatedTime = new Date(mr.prCreatedAt).getTime();
+                                    total += (firstReviewTime - mrCreatedTime) / (1000 * 60 * 60);
+                                }
+                            }
+                            return total;
+                        }, 0)
+                    ),
+                    reviewTime: Math.round(
+                        selectedReleaseMRs.reduce((total, mr) => {
+                            if (mr.reviews && mr.reviews.length > 0 && mr.prMergedAt) {
+                                const userReviews = mr.reviews.filter((review) => review.reviewState === 'manual');
+                                if (userReviews.length > 0) {
+                                    userReviews.sort((a, b) => new Date(a.reviewDate) - new Date(b.reviewDate));
+                                    const firstReviewTime = new Date(userReviews[0].reviewDate).getTime();
+                                    const mergedTime = new Date(mr.prMergedAt).getTime();
+                                    total += (mergedTime - firstReviewTime) / (1000 * 60 * 60);
+                                }
+                            }
+                            return total;
+                        }, 0)
+                    ),
+                };
+            }
+            if (!sprintId && !releaseId) {
+                throw new Error('Either sprintId or releaseId must be provided');
+            }
+            try {
+                await redis.set(cacheKey, JSON.stringify(result), 'EX', 28800);
+            } catch (err) {
+                console.warn('Redis not available, skipping cache set:', err.message);
+            }
+            return result;
+        } catch (error) {
+            console.error('Error in getGitCycleTime:', error);
+            throw error;
+        }
+    }
+}
+
+export default new GitLabCycleTimeService();
