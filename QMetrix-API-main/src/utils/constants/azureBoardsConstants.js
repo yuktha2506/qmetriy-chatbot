@@ -1,0 +1,14 @@
+export const TEMPLATE_SCRUM = 'scrum';
+export const TEMPLATE_AGILE = 'agile';
+export const TEMPLATE_CMMI = 'cmmi';
+export const TEMPLATE_BASIC = 'basic';
+export const FIELD_EFFORT = 'Microsoft.VSTS.Scheduling.Effort';
+export const FIELD_STORY_POINTS = 'Microsoft.VSTS.Scheduling.StoryPoints';
+export const FIELD_ORIGINAL_ESTIMATE = 'Microsoft.VSTS.Scheduling.OriginalEstimate';
+export const FIELD_REMAINING_WORK = 'Microsoft.VSTS.Scheduling.RemainingWork';
+export const FIELD_COMPLETED_WORK = 'Microsoft.VSTS.Scheduling.CompletedWork';
+export const CUSTOM_FIELD_EFFORT = 'Custom.Effort';
+export const CUSTOM_FIELD_STORY_POINTS = 'Custom.StoryPoints';
+export const FIELD_PREFIX_CUSTOM = 'Custom.';
+export const FIELD_PREFIX_MICROSOFT = 'Microsoft.';
+export const FIELD_PREFIX_SYSTEM = 'System.';
