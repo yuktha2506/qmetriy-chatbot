@@ -1,0 +1,32 @@
+## Execution commands
+
+Run these commands from PowerShell.
+
+powershell
+#go to 
+cd D:\qmetrix-chatbot\QMetry-AI-Insights\QMetrix-API-main
+
+npm i 
+npm start 
+
+#Go to
+cd D:\qmetrix-chatbot\QMetry-AI-Insights\QMetrix-AI-main
+
+rmdir /s /q venv
+
+python -m venv venv
+
+venv\Scripts\activate.bat
+
+python -m pip install --upgrade pip setuptools wheel
+
+python -m pip install -r requirements.txt
+
+set QMETRIX_ENABLE_SEMANTIC_RAG=true
+
+python -m uvicorn app.main:app --reload --reload-dir app --host 127.0.0.1 --port 8000
+
+#go to
+cd D:\qmetrix-chatbot\QMetry-AI-Insights\QMetrix-UI-main
+nmp i
+npm start
