@@ -1,9 +1,3 @@
-# Copyright Jonathan Hartley 2013. BSD 3-Clause license, see LICENSE file.
-'''
-This module generates ANSI character codes to printing colors to terminals.
-See: http://en.wikipedia.org/wiki/ANSI_escape_code
-'''
-
 CSI = '\033['
 OSC = '\033]'
 BEL = '\a'
